@@ -18,11 +18,12 @@
         </span>
         <div class="brand-text">
           <div class="brand-name">音響回線表メーカー</div>
-          <div class="brand-sub">INPUT LIST / A4 PDF</div>
+          <div class="brand-sub">INPUT / OUTPUT LIST · A4 PDF</div>
         </div>
       </div>
 
       <div class="topbar-actions">
+        <span class="page-count" id="page-count"></span>
         <span class="save-state" id="save-state" aria-live="polite">自動保存</span>
         <button class="btn" id="btn-preview" type="button">プレビュー</button>
         <button class="btn btn-primary" id="btn-pdf" type="button">
@@ -37,12 +38,14 @@
             <div class="menu-sep"></div>
             <button type="button" data-act="new" role="menuitem">新規作成</button>
             <div class="menu-label">サンプルから作る</div>
-            <button type="button" data-act="sample-band" role="menuitem">バンド編成（22回線）</button>
-            <button type="button" data-act="sample-talk" role="menuitem">講演・セミナー（10回線）</button>
+            <button type="button" data-act="sample-band" role="menuitem">バンド編成（IN 22 / OUT 10）</button>
+            <button type="button" data-act="sample-talk" role="menuitem">講演・セミナー（IN 10 / OUT 4）</button>
             <div class="menu-sep"></div>
             <button type="button" data-act="export-json" role="menuitem">JSONで書き出す</button>
             <button type="button" data-act="import-json" role="menuitem">JSONを読み込む</button>
             <button type="button" data-act="export-csv" role="menuitem">CSVで書き出す</button>
+            <div class="menu-sep"></div>
+            <button type="button" data-act="shortcuts" role="menuitem">キーボードショートカット</button>
           </div>
         </div>
       </div>
@@ -85,7 +88,6 @@
       <summary class="card-title">
         <span>用紙・表示設定</span>
         <span class="summary-note">A4 縦 / 文字 中</span>
-        <span class="summary-badge" id="summary-badge"></span>
       </summary>
       <div class="settings-body">
         <div class="setting-row">
@@ -94,51 +96,96 @@
             <button type="button" data-val="portrait">A4 縦</button>
             <button type="button" data-val="landscape">A4 横</button>
           </div>
-        </div>
-        <div class="setting-row">
-          <span class="setting-label">文字サイズ</span>
+          <span class="setting-label setting-label-inline">文字サイズ</span>
           <div class="seg" data-setting="density">
             <button type="button" data-val="compact">小</button>
             <button type="button" data-val="normal">中</button>
             <button type="button" data-val="large">大</button>
           </div>
+          <label class="check">
+            <input type="checkbox" id="opt-output-break">
+            <span>OUTPUT は新しいページから</span>
+          </label>
         </div>
         <div class="setting-row">
-          <span class="setting-label">印刷する列</span>
-          <div class="chips" id="column-chips"></div>
+          <span class="setting-label"><i class="sec-dot in"></i>INPUT の列</span>
+          <div class="chips" id="column-chips-input"></div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label"><i class="sec-dot out"></i>OUTPUT の列</span>
+          <div class="chips" id="column-chips-output"></div>
         </div>
       </div>
     </details>
 
-    <section class="card">
-      <div class="table-bar">
-        <h2 class="card-title">回線表</h2>
-        <span class="row-count" id="row-count"></span>
+    <div class="empty-state card" id="empty-state" hidden>
+      <p class="empty-title">まだ回線がありません</p>
+      <p class="empty-text">サンプルから始めるか、空の表に書き込んでください。<br>Excel やスプレッドシートからの貼り付けにも対応しています。</p>
+      <div class="empty-actions">
+        <button class="btn" type="button" data-sample="band">バンド編成のサンプル</button>
+        <button class="btn" type="button" data-sample="talk">講演のサンプル</button>
+        <button class="btn btn-primary" type="button" data-sample="blank">空の表で始める</button>
       </div>
+    </div>
 
-      <div class="empty-state" id="empty-state" hidden>
-        <p class="empty-title">まだ回線がありません</p>
-        <p class="empty-text">サンプルから始めるか、空の表に書き込んでください。<br>登録不要・オフラインで動きます。</p>
-        <div class="empty-actions">
-          <button class="btn" type="button" data-sample="band">バンド編成のサンプル</button>
-          <button class="btn" type="button" data-sample="talk">講演のサンプル</button>
-          <button class="btn btn-primary" type="button" data-sample="blank">空の表で始める</button>
+    <!-- ===== INPUT ===== -->
+    <section class="card sec-card" data-sec="input" aria-labelledby="sec-title-input">
+      <header class="sec-head">
+        <div class="sec-title-wrap">
+          <span class="sec-tag in">IN</span>
+          <h2 class="sec-title" id="sec-title-input">INPUT<span class="sec-ja">入力</span></h2>
+          <span class="sec-count" data-count="input"></span>
+          <span class="sec-warn" data-warn="input" hidden></span>
         </div>
-      </div>
-
+        <div class="sec-tools">
+          <button class="btn btn-sm btn-ghost" type="button" data-sact="renumber" title="No. を 1 から振り直す">No. 振り直し</button>
+          <button class="btn btn-sm btn-ghost btn-danger-text" type="button" data-sact="clear" title="INPUT を空にする">空にする</button>
+        </div>
+      </header>
       <div class="table-scroll">
-        <table class="edit-table" id="edit-table"></table>
+        <table class="edit-table" data-sec="input"></table>
       </div>
-
-      <div class="table-actions">
-        <button class="btn" id="btn-add-row" type="button">＋ 入力行</button>
-        <button class="btn" id="btn-add-group" type="button">＋ 入力見出し</button>
-        <button class="btn btn-out" id="btn-add-out-row" type="button">＋ 出力行</button>
-        <button class="btn btn-out" id="btn-add-out-group" type="button">＋ 出力見出し</button>
-        <button class="btn" id="btn-renumber" type="button">連番を振り直す</button>
-        <span class="hint">Enter で次の行へ / 行はドラッグで並べ替え</span>
-      </div>
+      <div class="sec-empty">INPUT はまだありません。下のボタンで行を追加してください。</div>
+      <footer class="sec-foot">
+        <button class="btn btn-sm" type="button" data-sact="add-row">＋ 行</button>
+        <button class="btn btn-sm" type="button" data-sact="add-rows">＋ 8 行</button>
+        <button class="btn btn-sm" type="button" data-sact="add-group">＋ 見出し</button>
+      </footer>
     </section>
+
+    <!-- ===== OUTPUT ===== -->
+    <section class="card sec-card" data-sec="output" aria-labelledby="sec-title-output">
+      <header class="sec-head">
+        <div class="sec-title-wrap">
+          <span class="sec-tag out">OUT</span>
+          <h2 class="sec-title" id="sec-title-output">OUTPUT<span class="sec-ja">出力</span></h2>
+          <span class="sec-count" data-count="output"></span>
+          <span class="sec-warn" data-warn="output" hidden></span>
+        </div>
+        <div class="sec-tools">
+          <button class="btn btn-sm btn-ghost" type="button" data-sact="renumber" title="No. を 1 から振り直す">No. 振り直し</button>
+          <button class="btn btn-sm btn-ghost btn-danger-text" type="button" data-sact="clear" title="OUTPUT を空にする">空にする</button>
+        </div>
+      </header>
+      <div class="table-scroll">
+        <table class="edit-table" data-sec="output"></table>
+      </div>
+      <div class="sec-empty">OUTPUT はまだありません。メイン・モニター・収録送りなどを追加できます。</div>
+      <footer class="sec-foot">
+        <button class="btn btn-sm" type="button" data-sact="add-row">＋ 行</button>
+        <button class="btn btn-sm" type="button" data-sact="add-rows">＋ 8 行</button>
+        <button class="btn btn-sm" type="button" data-sact="add-group">＋ 見出し</button>
+      </footer>
+    </section>
+
+    <div class="kbd-hints">
+      <span><kbd>Enter</kbd> 下へ</span>
+      <span><kbd>⌘</kbd><kbd>Enter</kbd> 行を挿入</span>
+      <span><kbd>⌘</kbd><kbd>D</kbd> 複製</span>
+      <span><kbd>Alt</kbd><kbd>↑↓</kbd> 行を移動</span>
+      <span>Excel から複数セルを貼り付け可</span>
+      <button class="link-btn" type="button" id="btn-shortcuts">ショートカット一覧</button>
+    </div>
 
     <footer class="app-footer">
       <p><strong>PDFの保存方法</strong>「PDFで保存」を押し、印刷ダイアログの保存先で「PDFに保存」を選んでください（用紙は A4 縦／横に自動設定されます）。</p>
@@ -172,6 +219,42 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+  <div class="row-menu" id="row-menu" role="menu">
+    <button type="button" data-ract="above" role="menuitem">上に行を挿入</button>
+    <button type="button" data-ract="below" role="menuitem">下に行を挿入 <kbd>⌘↵</kbd></button>
+    <button type="button" data-ract="to-group" role="menuitem">上に見出しを挿入</button>
+    <button type="button" data-ract="group-below" role="menuitem">下に見出しを挿入</button>
+    <button type="button" data-ract="duplicate" role="menuitem">複製 <kbd>⌘D</kbd></button>
+    <div class="menu-sep"></div>
+    <button type="button" data-ract="up" role="menuitem">上へ移動 <kbd>Alt↑</kbd></button>
+    <button type="button" data-ract="down" role="menuitem">下へ移動 <kbd>Alt↓</kbd></button>
+    <div class="menu-sep"></div>
+    <button type="button" data-ract="delete" class="danger" role="menuitem">行を削除 <kbd>⌘⇧⌫</kbd></button>
+  </div>
+
+  <dialog class="dialog" id="shortcuts" aria-labelledby="shortcuts-title">
+    <div class="dialog-head">
+      <h2 id="shortcuts-title">キーボードショートカット</h2>
+      <button class="btn btn-icon btn-ghost" type="button" data-close aria-label="閉じる">✕</button>
+    </div>
+    <table class="kbd-table">
+      <tbody>
+        <tr><th><kbd>Enter</kbd></th><td>下のセルへ（最終行では行を追加）</td></tr>
+        <tr><th><kbd>Shift</kbd> + <kbd>Enter</kbd></th><td>上のセルへ</td></tr>
+        <tr><th><kbd>↑</kbd> <kbd>↓</kbd></th><td>上下のセルへ移動</td></tr>
+        <tr><th><kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd></th><td>右 / 左のセルへ</td></tr>
+        <tr><th><kbd>⌘</kbd> + <kbd>Enter</kbd></th><td>下に行を挿入（卓CH・BOX は自動で +1）</td></tr>
+        <tr><th><kbd>⌘</kbd> + <kbd>D</kbd></th><td>行を複製</td></tr>
+        <tr><th><kbd>⌘</kbd> + <kbd>Shift</kbd> + <kbd>⌫</kbd></th><td>行を削除</td></tr>
+        <tr><th><kbd>Alt</kbd> + <kbd>↑</kbd> <kbd>↓</kbd></th><td>行を上下に移動</td></tr>
+        <tr><th><kbd>⌘</kbd> + <kbd>Z</kbd> / <kbd>⇧⌘Z</kbd></th><td>元に戻す / やり直す</td></tr>
+        <tr><th><kbd>⌘</kbd> + <kbd>P</kbd></th><td>PDF で保存</td></tr>
+        <tr><th>貼り付け</th><td>Excel・Googleスプレッドシートの範囲をそのまま貼り付け（選択セルから右・下へ展開）</td></tr>
+      </tbody>
+    </table>
+    <p class="dialog-note">Windows では <kbd>⌘</kbd> の代わりに <kbd>Ctrl</kbd> を使います。</p>
+  </dialog>
+
   <datalist id="kind-list">
     <option value="Mic"></option>
     <option value="DI"></option>
@@ -180,6 +263,33 @@
     <option value="PB"></option>
     <option value="TB"></option>
     <option value="Inst"></option>
+  </datalist>
+  <datalist id="stand-list">
+    <option value="トール"></option>
+    <option value="ショート"></option>
+    <option value="ストレート"></option>
+    <option value="卓上"></option>
+    <option value="クリップ"></option>
+    <option value="なし"></option>
+  </datalist>
+  <datalist id="cable-list">
+    <option value="XLR"></option>
+    <option value="TRS"></option>
+    <option value="TS"></option>
+    <option value="RCA"></option>
+    <option value="SPK"></option>
+    <option value="Multi"></option>
+    <option value="—"></option>
+  </datalist>
+  <datalist id="out-list">
+    <option value="MAIN L"></option>
+    <option value="MAIN R"></option>
+    <option value="MONO"></option>
+    <option value="AUX1"></option>
+    <option value="MIX1"></option>
+    <option value="MTX1"></option>
+    <option value="GRP1"></option>
+    <option value="DCA1"></option>
   </datalist>
 
   <input type="file" id="file-input" accept="application/json,.json" hidden>

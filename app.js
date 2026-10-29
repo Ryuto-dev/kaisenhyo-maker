@@ -1,6 +1,7 @@
 /* ============================================================
    音響回線表メーカー — app
    Vanilla JS / no build step / localStorage autosave
+   INPUT と OUTPUT を独立したセクションとして管理する
    ============================================================ */
 
 (function () {
@@ -11,35 +12,48 @@
      --------------------------------------------------------- */
 
   const STORAGE_KEY = 'kaisenhyo-maker/v1';
-  const HISTORY_LIMIT = 80;
+  const HISTORY_LIMIT = 100;
+  const SECS = ['input', 'output'];
 
-  const COLUMNS = [
-    { key: 'no',      label: 'No.',          align: 'c', editWidth: '46px', printWidth: '9mm'  },
-    { key: 'name',    label: '回線名 / 内容', align: '',  editWidth: '22%',  printWidth: 'auto' },
-    { key: 'source',  label: '機器',          align: '',  editWidth: '16%',  printWidth: '32mm' },
-    { key: 'kind',    label: '種別',          align: 'c', editWidth: '66px', printWidth: '13mm' },
-    { key: 'console', label: '卓CH',          align: 'c', editWidth: '54px', printWidth: '12mm' },
-    { key: 'box',     label: 'BOX',           align: '',  editWidth: '84px', printWidth: '18mm' },
-    { key: 'cable',   label: 'CBL',           align: 'c', editWidth: '56px', printWidth: '12mm' },
-    { key: 'length',  label: '長さ',          align: 'c', editWidth: '52px', printWidth: '12mm' },
-    { key: 'note',    label: '備考',          align: '',  editWidth: 'auto', printWidth: 'auto' },
-  ];
+  /*
+    w   … 編集画面の列幅
+    pw  … A4 印刷時の列幅
+    fixed … 常に表示（列の表示切り替え対象外）
+  */
+  const COLS = {
+    input: [
+      { key: 'no',      label: 'No.',        align: 'c', w: '50px', pw: '9mm',  fixed: true, num: true },
+      { key: 'name',    label: '回線名',      align: '',  w: '22%',  pw: 'auto', fixed: true, ph: '例: Kick In' },
+      { key: 'source',  label: 'マイク / 機器', align: '',  w: '15%',  pw: '30mm', ph: '例: SM57' },
+      { key: 'kind',    label: '種別',        align: 'c', w: '64px', pw: '12mm', list: 'kind-list' },
+      { key: 'phantom', label: '+48V',        align: 'c', w: '54px', pw: '10mm', toggle: true },
+      { key: 'stand',   label: 'スタンド',     align: 'c', w: '78px', pw: '14mm', list: 'stand-list' },
+      { key: 'console', label: '卓CH',        align: 'c', w: '58px', pw: '12mm', num: true, dupe: true },
+      { key: 'box',     label: 'BOX',         align: '',  w: '84px', pw: '18mm', num: true, dupe: true },
+      { key: 'cable',   label: 'CBL',         align: 'c', w: '62px', pw: '12mm', list: 'cable-list' },
+      { key: 'length',  label: '長さ',        align: 'c', w: '56px', pw: '12mm', num: true },
+      { key: 'note',    label: '備考',        align: '',  w: 'auto', pw: 'auto' },
+    ],
+    output: [
+      { key: 'no',      label: 'No.',        align: 'c', w: '50px', pw: '9mm',  fixed: true, num: true },
+      { key: 'name',    label: '出力名',      align: '',  w: '22%',  pw: 'auto', fixed: true, ph: '例: Main L' },
+      { key: 'console', label: '卓OUT',       align: 'c', w: '84px', pw: '17mm', num: true, dupe: true, list: 'out-list' },
+      { key: 'dest',    label: '接続先',      align: '',  w: '18%',  pw: '34mm', ph: '例: PA Processor In1' },
+      { key: 'box',     label: 'BOX',         align: '',  w: '84px', pw: '18mm', num: true, dupe: true },
+      { key: 'cable',   label: 'CBL',         align: 'c', w: '62px', pw: '12mm', list: 'cable-list' },
+      { key: 'length',  label: '長さ',        align: 'c', w: '56px', pw: '12mm', num: true },
+      { key: 'note',    label: '備考',        align: '',  w: 'auto', pw: 'auto' },
+    ],
+  };
 
-  const OPTIONAL_KEYS = ['source', 'kind', 'console', 'box', 'cable', 'length', 'note'];
+  const SEC_INFO = {
+    input:  { label: 'INPUT',  ja: '入力', unit: 'ch' },
+    output: { label: 'OUTPUT', ja: '出力', unit: '系統' },
+  };
 
+  const DEFAULT_HIDDEN = ['input:stand'];
   const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
-
-  const SECTIONS = {
-    input:  { label: 'INPUT',  ja: '入力' },
-    output: { label: 'OUTPUT', ja: '出力' },
-  };
-
-  const SECTION_COLUMN_LABELS = {
-    input: { source: '機器', console: '卓CH' },
-    output: { source: '接続先', console: '卓OUT' },
-  };
-
-  const sectionOf = (row) => (row && row.section === 'output' ? 'output' : 'input');
+  const EMPTY_MARKS = ['', '-', '—', '－', 'ー', 'n/a', 'N/A'];
 
   /* ---------------------------------------------------------
      utilities
@@ -79,25 +93,88 @@
     return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
   }
 
+  function isBlankMark(v) {
+    return EMPTY_MARKS.indexOf(String(v == null ? '' : v).trim()) !== -1;
+  }
+
+  /* "SB1-8" → "SB1-9", "AUX1" → "AUX2", "09" → "10"。数字がなければ '' */
+  function incr(value) {
+    const s = String(value == null ? '' : value);
+    const m = /^(.*?)(\d+)(\D*)$/.exec(s);
+    if (!m) return '';
+    const n = String(Number(m[2]) + 1);
+    const num = m[2].length > n.length ? n.padStart(m[2].length, '0') : n;
+    return m[1] + num + m[3];
+  }
+
+  function truthyPhantom(v) {
+    const s = String(v == null ? '' : v).trim().toLowerCase();
+    if (!s) return '';
+    return ['0', 'off', 'no', 'false', '-', '—', '×', 'x', 'なし'].indexOf(s) !== -1 ? '' : '1';
+  }
+
   /* ---------------------------------------------------------
      state
      --------------------------------------------------------- */
-
-  let state = loadState();
 
   function emptyMeta() {
     return { title: '', venue: '', date: '', author: '', rev: 'Rev.1', note: '' };
   }
 
-  function normalize(raw) {
-    const s = {
+  function emptyState() {
+    return {
+      version: 2,
       meta: emptyMeta(),
       paper: 'portrait',
       density: 'normal',
-      hidden: [],
-      rows: [],
+      outputBreak: false,
+      hidden: DEFAULT_HIDDEN.slice(),
+      input: [],
+      output: [],
     };
+  }
 
+  function cleanId(raw) {
+    const s = raw != null ? String(raw) : '';
+    return /^[A-Za-z0-9_-]{1,40}$/.test(s) ? s : uid();
+  }
+
+  function cleanRow(sec, row) {
+    if (row && row.type === 'group') {
+      return { id: cleanId(row.id), type: 'group', name: String(row.name || '') };
+    }
+    const out = { id: cleanId(row && row.id), type: 'row' };
+    COLS[sec].forEach((c) => {
+      const v = row && row[c.key] != null ? String(row[c.key]) : '';
+      out[c.key] = c.toggle ? truthyPhantom(v) : v;
+    });
+    return out;
+  }
+
+  /* v1（rows + section）→ v2（input / output） */
+  function migrateRows(rows) {
+    const res = { input: [], output: [] };
+    const secOf = rows.map((r) => (r && r.type !== 'group' ? (r.section === 'output' ? 'output' : 'input') : null));
+    rows.forEach((r, i) => {
+      let sec = secOf[i];
+      if (!sec) {
+        for (let j = i + 1; j < rows.length && !sec; j += 1) sec = secOf[j];
+        for (let j = i - 1; j >= 0 && !sec; j -= 1) sec = secOf[j];
+        sec = sec || 'input';
+      }
+      let row = r;
+      if (sec === 'output' && r && r.type !== 'group') {
+        row = Object.assign({}, r);
+        row.dest = r.source || '';
+        if (isBlankMark(row.console) && r.kind) row.console = r.kind;
+      }
+      res[sec].push(cleanRow(sec, row));
+    });
+    return res;
+  }
+
+  function normalize(raw) {
+    const s = emptyState();
     if (!raw || typeof raw !== 'object') return s;
 
     if (raw.meta && typeof raw.meta === 'object') {
@@ -107,139 +184,184 @@
     }
     if (raw.paper === 'landscape') s.paper = 'landscape';
     if (['compact', 'normal', 'large'].indexOf(raw.density) !== -1) s.density = raw.density;
-    if (Array.isArray(raw.hidden)) {
-      s.hidden = raw.hidden.filter((k) => OPTIONAL_KEYS.indexOf(k) !== -1);
-    }
-    if (Array.isArray(raw.rows)) {
-      s.rows = raw.rows.map((row) => {
-        const rawId = row && row.id != null ? String(row.id) : '';
-        const id = /^[A-Za-z0-9_-]{1,40}$/.test(rawId) ? rawId : uid();
-        if (row && row.type === 'group') {
-          return { id: id, type: 'group', name: String(row.name || '') };
-        }
-        const section = row && row.section === 'output' ? 'output' : 'input';
-        const out = { id: id, type: 'row', section: section };
-        COLUMNS.forEach((c) => {
-          out[c.key] = row && row[c.key] != null ? String(row[c.key]) : '';
-        });
-        return out;
+    s.outputBreak = !!raw.outputBreak;
+
+    if (Array.isArray(raw.input) || Array.isArray(raw.output)) {
+      SECS.forEach((sec) => {
+        s[sec] = Array.isArray(raw[sec]) ? raw[sec].map((r) => cleanRow(sec, r)) : [];
       });
+      if (Array.isArray(raw.hidden)) {
+        s.hidden = raw.hidden.filter((k) => {
+          const p = String(k).split(':');
+          return COLS[p[0]] && COLS[p[0]].some((c) => c.key === p[1] && !c.fixed);
+        });
+      }
+    } else if (Array.isArray(raw.rows)) {
+      const m = migrateRows(raw.rows);
+      s.input = m.input;
+      s.output = m.output;
+      if (Array.isArray(raw.hidden)) {
+        const h = DEFAULT_HIDDEN.slice();
+        raw.hidden.forEach((k) => {
+          if (COLS.input.some((c) => c.key === k && !c.fixed)) h.push('input:' + k);
+          const ok = k === 'source' ? 'dest' : k;
+          if (COLS.output.some((c) => c.key === ok && !c.fixed)) h.push('output:' + ok);
+        });
+        s.hidden = h.filter((v, i, a) => a.indexOf(v) === i);
+      }
     }
     return s;
   }
 
-  function visibleColumns() {
-    return COLUMNS.filter((c) => c.key === 'no' || state.hidden.indexOf(c.key) === -1);
+  let state = loadState();
+
+  function isHidden(sec, key) {
+    return state.hidden.indexOf(sec + ':' + key) !== -1;
   }
 
-  function dataRows() {
-    return state.rows.filter((r) => r.type !== 'group');
+  function visibleCols(sec) {
+    return COLS[sec].filter((c) => c.fixed || !isHidden(sec, c.key));
   }
 
-  function blankRow(no, section) {
-    const row = { id: uid(), type: 'row', section: section || 'input' };
-    COLUMNS.forEach((c) => { row[c.key] = ''; });
-    if (no != null) row.no = String(no);
-    return row;
+  function dataCount(sec) {
+    return state[sec].filter((r) => r.type !== 'group').length;
   }
 
-  function blankDoc(count) {
-    const s = normalize({});
-    s.meta.date = todayISO();
-    for (let i = 1; i <= (count || 8); i += 1) s.rows.push(blankRow(i));
-    return s;
+  function totalRows() {
+    return state.input.length + state.output.length;
   }
 
-  function rowsFrom(defs, section) {
+  function blankRow(sec) {
+    return cleanRow(sec, {});
+  }
+
+  function rowsFrom(sec, defs) {
+    const keys = COLS[sec].map((c) => c.key);
     return defs.map((d) => {
       if (typeof d === 'string') return { id: uid(), type: 'group', name: d };
-      const row = { id: uid(), type: 'row', section: section || 'input' };
-      COLUMNS.forEach((c, i) => { row[c.key] = d[i] == null ? '' : String(d[i]); });
-      return row;
+      const obj = {};
+      keys.forEach((k, i) => { obj[k] = d[i] == null ? '' : d[i]; });
+      return cleanRow(sec, obj);
     });
+  }
+
+  function findRow(id) {
+    for (let s = 0; s < SECS.length; s += 1) {
+      const list = state[SECS[s]];
+      const i = list.findIndex((r) => r.id === id);
+      if (i !== -1) return { sec: SECS[s], list: list, index: i, row: list[i] };
+    }
+    return null;
   }
 
   /* ---------------------------------------------------------
      samples
+     input : no, name, source, kind, phantom, stand, console, box, cable, length, note
+     output: no, name, console, dest, box, cable, length, note
      --------------------------------------------------------- */
 
-  const SAMPLE_BAND = [
-    /* --- INPUT --- */
+  const SAMPLE_BAND_IN = [
     'ドラムス',
-    ['1',  'Kick In',      'Beta 91A',      'Mic', '1',  'SB1-1', 'XLR', '5m',  ''],
-    ['2',  'Kick Out',     'Beta 52A',      'Mic', '2',  'SB1-2', 'XLR', '5m',  ''],
-    ['3',  'Snare Top',    'SM57',          'Mic', '3',  'SB1-3', 'XLR', '5m',  ''],
-    ['4',  'Snare Bottom', 'SM57',          'Mic', '4',  'SB1-4', 'XLR', '5m',  'PHASE'],
-    ['5',  'Hi-Hat',       'SM81',          'Mic', '5',  'SB1-5', 'XLR', '5m',  ''],
-    ['6',  'Rack Tom 1',   'e604',          'Mic', '6',  'SB1-6', 'XLR', '5m',  ''],
-    ['7',  'Rack Tom 2',   'e604',          'Mic', '7',  'SB1-7', 'XLR', '5m',  ''],
-    ['8',  'Floor Tom',    'e604',          'Mic', '8',  'SB1-8', 'XLR', '5m',  ''],
-    ['9',  'OH L',         'C414',          'Mic', '9',  'SB2-1', 'XLR', '10m', ''],
-    ['10', 'OH R',         'C414',          'Mic', '10', 'SB2-2', 'XLR', '10m', ''],
+    ['1',  'Kick In',      'Beta 91A',    'Mic', '1', '',       '1',  'SB1-1', 'XLR', '5m',  ''],
+    ['2',  'Kick Out',     'Beta 52A',    'Mic', '',  'ショート', '2',  'SB1-2', 'XLR', '5m',  ''],
+    ['3',  'Snare Top',    'SM57',        'Mic', '',  'ショート', '3',  'SB1-3', 'XLR', '5m',  ''],
+    ['4',  'Snare Bottom', 'SM57',        'Mic', '',  'ショート', '4',  'SB1-4', 'XLR', '5m',  'PHASE'],
+    ['5',  'Hi-Hat',       'SM81',        'Mic', '1', 'ショート', '5',  'SB1-5', 'XLR', '5m',  ''],
+    ['6',  'Rack Tom 1',   'e604',        'Mic', '',  'クリップ', '6',  'SB1-6', 'XLR', '5m',  ''],
+    ['7',  'Rack Tom 2',   'e604',        'Mic', '',  'クリップ', '7',  'SB1-7', 'XLR', '5m',  ''],
+    ['8',  'Floor Tom',    'e604',        'Mic', '',  'クリップ', '8',  'SB1-8', 'XLR', '5m',  ''],
+    ['9',  'OH L',         'C414',        'Mic', '1', 'トール',   '9',  'SB2-1', 'XLR', '10m', ''],
+    ['10', 'OH R',         'C414',        'Mic', '1', 'トール',   '10', 'SB2-2', 'XLR', '10m', ''],
     'ベース',
-    ['11', 'Bass DI',      'SansAmp DI',    'DI',  '11', 'SB2-3', 'XLR', '10m', ''],
-    ['12', 'Bass Amp',     'MD421',         'Mic', '12', 'SB2-4', 'XLR', '10m', ''],
+    ['11', 'Bass DI',      'SansAmp DI',  'DI',  '',  '',       '11', 'SB2-3', 'XLR', '10m', ''],
+    ['12', 'Bass Amp',     'MD421',       'Mic', '',  'ショート', '12', 'SB2-4', 'XLR', '10m', ''],
     'ギター',
-    ['13', 'Gt. L',        'SM57',          'Mic', '13', 'SB2-5', 'XLR', '10m', ''],
-    ['14', 'Gt. R',        'SM57',          'Mic', '14', 'SB2-6', 'XLR', '10m', ''],
+    ['13', 'Gt. L',        'SM57',        'Mic', '',  'ショート', '13', 'SB2-5', 'XLR', '10m', ''],
+    ['14', 'Gt. R',        'SM57',        'Mic', '',  'ショート', '14', 'SB2-6', 'XLR', '10m', ''],
     'キーボード',
-    ['15', 'Keys L',       'DI box',        'DI',  '15', 'SB2-7', 'XLR', '10m', ''],
-    ['16', 'Keys R',       'DI box',        'DI',  '16', 'SB2-8', 'XLR', '10m', ''],
+    ['15', 'Keys L',       'DI box',      'DI',  '1', '',       '15', 'SB2-7', 'XLR', '10m', ''],
+    ['16', 'Keys R',       'DI box',      'DI',  '1', '',       '16', 'SB2-8', 'XLR', '10m', ''],
     'ボーカル',
-    ['17', 'Vo.1 (Lead)',  'UR4D + SM58',   'WL',  '17', '—',     '—',   '—',   '電池確認'],
-    ['18', 'Vo.2',         'UR4D + SM58',   'WL',  '18', '—',     '—',   '—',   ''],
-    ['19', 'Vo.3',         'UR4D + SM58',   'WL',  '19', '—',     '—',   '—',   ''],
+    ['17', 'Vo.1 (Lead)',  'UR4D + SM58', 'WL',  '',  'トール',   '17', '—',     '—',   '—',   '電池確認'],
+    ['18', 'Vo.2',         'UR4D + SM58', 'WL',  '',  'トール',   '18', '—',     '—',   '—',   ''],
+    ['19', 'Vo.3',         'UR4D + SM58', 'WL',  '',  'トール',   '19', '—',     '—',   '—',   ''],
     '再生・その他',
-    ['20', 'Playback L',   'PC / DI',       'PB',  '20', 'DI-1',  'XLR', '10m', ''],
-    ['21', 'Playback R',   'PC / DI',       'PB',  '21', 'DI-2',  'XLR', '10m', ''],
-    ['22', 'Talkback',     'TB マイク',      'TB',  '—',  '—',     'XLR', '—',   ''],
+    ['20', 'Playback L',   'PC / DI',     'PB',  '',  '',       '20', 'DI-1',  'XLR', '10m', ''],
+    ['21', 'Playback R',   'PC / DI',     'PB',  '',  '',       '21', 'DI-2',  'XLR', '10m', ''],
+    ['22', 'Talkback',     'SM58S',       'TB',  '',  '',       'TB', '—',     'XLR', '—',   '卓脇'],
   ];
 
-  const SAMPLE_BAND_OUTPUT = [
-    'Main',
-    ['1', 'Main L',     'PA Processor', 'L',  '—',  'XLR-3', '50m', 'L'],
-    ['2', 'Main R',     'PA Processor', 'R',  '—',  'XLR-3', '50m', 'R'],
-    'Monitor',
-    ['3', 'MON 1',      'Amp Rack 1',   'AUX1', '—', 'XLR-3', '20m', 'ドラマー'],
-    ['4', 'MON 2',      'Amp Rack 1',   'AUX2', '—', 'XLR-3', '20m', 'ベーシスト'],
-    ['5', 'MON 3',      'Amp Rack 1',   'AUX3', '—', 'XLR-3', '15m', 'ギタリスト'],
-    ['6', 'MON 4',      'Amp Rack 1',   'AUX4', '—', 'XLR-3', '15m', 'Vo.'],
-    'その他',
-    ['7', 'REC L',      'DAW',           'MTX1', '—', 'XLR',   '10m', ''],
-    ['8', 'REC R',      'DAW',           'MTX2', '—', 'XLR',   '10m', ''],
-    ['9', 'Subwoofer',  'SW Processor',  'L+R',  '—', 'XLR',   '30m', ''],
-    ['10', 'Stage Monitor L', 'Monitor Speaker', 'AUX1', '—', 'SPK', '15m', ''],
+  const SAMPLE_BAND_OUT = [
+    'メイン',
+    ['1',  'Main L',     'MAIN L', 'PA Processor In1', 'RB-1', 'XLR', '50m', ''],
+    ['2',  'Main R',     'MAIN R', 'PA Processor In2', 'RB-2', 'XLR', '50m', ''],
+    ['3',  'Sub',        'MTX1',   'Sub Processor',    'RB-3', 'XLR', '30m', 'L+R MONO'],
+    'モニター',
+    ['4',  'MON 1',      'AUX1',   'Wedge 1 (Dr)',     'SB1-R1', 'XLR', '20m', 'ドラマー'],
+    ['5',  'MON 2',      'AUX2',   'Wedge 2 (Ba)',     'SB1-R2', 'XLR', '20m', 'ベーシスト'],
+    ['6',  'MON 3',      'AUX3',   'Wedge 3 (Gt)',     'SB1-R3', 'XLR', '15m', 'ギタリスト'],
+    ['7',  'MON 4',      'AUX4',   'Wedge 4 (Vo)',     'SB1-R4', 'XLR', '15m', 'Vo.'],
+    '収録',
+    ['8',  'REC L',      'MTX2',   'Recorder In1',     '—',    'XLR', '5m',  ''],
+    ['9',  'REC R',      'MTX3',   'Recorder In2',     '—',    'XLR', '5m',  ''],
+    ['10', 'ロビー送り', 'MTX4',   'ロビー SP',        'RB-4', 'XLR', '30m', ''],
   ];
 
-  const SAMPLE_TALK = [
+  const SAMPLE_TALK_IN = [
     '登壇者',
-    ['1',  '卓上マイク 1', 'MX418',        'Mic', '1', 'SB1-1', 'XLR', '15m', ''],
-    ['2',  '卓上マイク 2', 'MX418',        'Mic', '2', 'SB1-2', 'XLR', '15m', ''],
-    ['3',  'ワイヤレス 1', 'UR4D + LM',    'WL',  '3', '—',     '—',   '—',   ''],
-    ['4',  'ワイヤレス 2', 'UR4D + LM',    'WL',  '4', '—',     '—',   '—',   ''],
+    ['1',  '卓上マイク 1', 'MX418',         'Mic', '1', '卓上', '1',  'SB1-1', 'XLR', '15m', ''],
+    ['2',  '卓上マイク 2', 'MX418',         'Mic', '1', '卓上', '2',  'SB1-2', 'XLR', '15m', ''],
+    ['3',  'ワイヤレス 1', 'UR4D + LM',     'WL',  '',  '',     '3',  '—',     '—',   '—',   ''],
+    ['4',  'ワイヤレス 2', 'UR4D + LM',     'WL',  '',  '',     '4',  '—',     '—',   '—',   ''],
     '映像・再生',
-    ['5',  'PC 音声 L',    'DI box',       'DI',  '5', 'DI-1',  'XLR', '10m', ''],
-    ['6',  'PC 音声 R',    'DI box',       'DI',  '6', 'DI-2',  'XLR', '10m', ''],
-    ['7',  '映像音声 L',   'Canvas / HDMI', 'PB', '7', '—',     'RCA', '—',   ''],
-    ['8',  '映像音声 R',   'Canvas / HDMI', 'PB', '8', '—',     'RCA', '—',   ''],
+    ['5',  'PC 音声 L',    'DI box',        'DI',  '',  '',     '5',  'DI-1',  'XLR', '10m', ''],
+    ['6',  'PC 音声 R',    'DI box',        'DI',  '',  '',     '6',  'DI-2',  'XLR', '10m', ''],
+    ['7',  '映像音声 L',   'HDMI De-emb',   'PB',  '',  '',     '7',  '—',     'RCA', '—',   ''],
+    ['8',  '映像音声 R',   'HDMI De-emb',   'PB',  '',  '',     '8',  '—',     'RCA', '—',   ''],
     'その他',
-    ['9',  '司会',         'WL ハンド',     'WL',  '9', '—',     '—',   '—',   ''],
-    ['10', 'BGM',          'PC / SE',      'PB',  '10', 'DI-3', 'XLR', '10m', '本番キュー確認'],
+    ['9',  '司会',         'WL ハンド',      'WL',  '',  '',     '9',  '—',     '—',   '—',   ''],
+    ['10', 'BGM',          'PC / SE',       'PB',  '',  '',     '10', 'DI-3',  'XLR', '10m', '本番キュー確認'],
+  ];
+
+  const SAMPLE_TALK_OUT = [
+    ['1', 'Main L',   'MAIN L', '会場 SP L',     '—', 'XLR', '30m', ''],
+    ['2', 'Main R',   'MAIN R', '会場 SP R',     '—', 'XLR', '30m', ''],
+    ['3', '返し',     'AUX1',   '登壇者モニター', '—', 'XLR', '15m', ''],
+    ['4', '配信送り', 'MTX1',   '配信卓',        '—', 'XLR', '10m', '-10dB'],
   ];
 
   function sampleDoc(kind) {
-    const s = normalize({});
+    const s = emptyState();
     s.meta.date = todayISO();
-    s.meta.rev = 'Rev.1';
     if (kind === 'band') {
       s.meta.title = 'バンドライブ 音響回線表';
+      s.meta.venue = '○○ライブハウス';
       s.meta.note = 'マイクは SM58 × 6、SM57 × 3 を用意。\n16:00 仕込み / 17:00 サウンドチェック。';
-      s.rows = rowsFrom(SAMPLE_BAND, 'input');
-      s.rows = s.rows.concat(rowsFrom(SAMPLE_BAND_OUTPUT, 'output'));
-    } else if (kind === 'talk') {
+      s.input = rowsFrom('input', SAMPLE_BAND_IN);
+      s.output = rowsFrom('output', SAMPLE_BAND_OUT);
+    } else {
       s.meta.title = '講演 音響回線表';
+      s.meta.venue = '○○ホール';
       s.meta.note = '受付でワイヤレスの電池残量を確認。発表者PCの音声は会場で実測。';
-      s.rows = rowsFrom(SAMPLE_TALK, 'input');
+      s.input = rowsFrom('input', SAMPLE_TALK_IN);
+      s.output = rowsFrom('output', SAMPLE_TALK_OUT);
+    }
+    return s;
+  }
+
+  function blankDoc() {
+    const s = emptyState();
+    s.meta.date = todayISO();
+    for (let i = 1; i <= 8; i += 1) {
+      const r = blankRow('input');
+      r.no = String(i);
+      r.console = String(i);
+      s.input.push(r);
+    }
+    for (let i = 1; i <= 4; i += 1) {
+      const r = blankRow('output');
+      r.no = String(i);
+      s.output.push(r);
     }
     return s;
   }
@@ -256,7 +378,7 @@
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) return normalize(JSON.parse(raw));
     } catch (err) { /* ignore broken storage */ }
-    return normalize({ rows: [] });
+    return emptyState();
   }
 
   function setSaveState(text, revert) {
@@ -264,36 +386,53 @@
     if (!el) return;
     el.textContent = text;
     clearTimeout(saveStateTimer);
-    if (revert) {
-      saveStateTimer = setTimeout(() => { el.textContent = '自動保存'; }, 1400);
+    if (revert) saveStateTimer = setTimeout(() => { el.textContent = '自動保存'; }, 1400);
+  }
+
+  function flushSave() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      setSaveState('保存済み ✓', true);
+    } catch (err) {
+      setSaveState('保存できません');
     }
   }
 
   function save() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      saveTimer = null;
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-        setSaveState('保存済み ✓', true);
-      } catch (err) {
-        setSaveState('保存できません');
-      }
-    }, 250);
+    saveTimer = setTimeout(flushSave, 250);
   }
 
   /* ---------------------------------------------------------
      history
+     - 構造変更（行追加・削除・移動など）は snapshot() で直前を保存
+     - セル入力は「フォーカス時の状態」を、最初の入力時にだけ積む
      --------------------------------------------------------- */
 
   const undoStack = [];
   const redoStack = [];
-  let skipFocusSnapshot = false;
+  let pendingSnap = null;
 
-  function snapshot() {
-    undoStack.push(JSON.stringify(state));
+  function pushUndo(json) {
+    if (undoStack.length && undoStack[undoStack.length - 1] === json) return;
+    undoStack.push(json);
     if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
     redoStack.length = 0;
+  }
+
+  function snapshot() {
+    pendingSnap = null;
+    pushUndo(JSON.stringify(state));
+  }
+
+  function armPending() {
+    pendingSnap = JSON.stringify(state);
+  }
+
+  function consumePending() {
+    if (pendingSnap) { pushUndo(pendingSnap); pendingSnap = null; }
   }
 
   function undo() {
@@ -315,99 +454,117 @@
   }
 
   /* ---------------------------------------------------------
+     duplicate detection（卓CH / BOX の重複）
+     --------------------------------------------------------- */
+
+  function normKey(v) {
+    return String(v == null ? '' : v).trim().toUpperCase().replace(/\s+/g, '');
+  }
+
+  function findDupes(sec) {
+    const result = {}; // id -> [keys]
+    let count = 0;
+    COLS[sec].filter((c) => c.dupe).forEach((c) => {
+      const map = {};
+      state[sec].forEach((r) => {
+        if (r.type === 'group' || isBlankMark(r[c.key])) return;
+        const k = normKey(r[c.key]);
+        (map[k] = map[k] || []).push(r.id);
+      });
+      Object.keys(map).forEach((k) => {
+        if (map[k].length < 2) return;
+        count += map[k].length;
+        map[k].forEach((id) => { (result[id] = result[id] || []).push(c.key); });
+      });
+    });
+    return { byId: result, count: count };
+  }
+
+  function refreshDupes(sec) {
+    const table = $('.edit-table[data-sec="' + sec + '"]');
+    if (!table) return;
+    const d = findDupes(sec);
+    $$('td.dupe', table).forEach((td) => { td.classList.remove('dupe'); td.removeAttribute('title'); });
+    Object.keys(d.byId).forEach((id) => {
+      d.byId[id].forEach((key) => {
+        const el = $('tr[data-id="' + id + '"] [data-k="' + key + '"]', table);
+        if (!el) return;
+        const td = el.closest('td');
+        td.classList.add('dupe');
+        td.title = '重複しています';
+      });
+    });
+    const warn = $('[data-warn="' + sec + '"]');
+    if (warn) {
+      warn.hidden = !d.count;
+      warn.textContent = '重複 ' + d.count;
+    }
+  }
+
+  /* ---------------------------------------------------------
      rendering — screen editor
      --------------------------------------------------------- */
 
-  function renderEditor() {
-    const table = $('#edit-table');
-    const empty = $('#empty-state');
-    const count = $('#row-count');
-    const cols = visibleColumns();
-
-    if (!state.rows.length) {
-      table.hidden = true;
-      table.innerHTML = '';
-      empty.hidden = false;
-      count.textContent = '';
-      return;
+  function cellHTML(sec, row, c) {
+    if (c.toggle) {
+      const on = row[c.key] === '1';
+      return '<td class="tg"><button type="button" class="ph-btn' + (on ? ' on' : '') + '" data-k="' + c.key + '" aria-pressed="' + on + '" aria-label="ファンタム電源 +48V">' + (on ? '48V' : '') + '</button></td>';
     }
+    const attrs = [
+      'data-k="' + c.key + '"',
+      'value="' + esc(row[c.key]) + '"',
+      'aria-label="' + esc(c.label) + '"',
+      'autocomplete="off"',
+      'spellcheck="false"',
+    ];
+    if (c.list) attrs.push('list="' + c.list + '"');
+    if (c.align === 'c') attrs.push('class="ta-c"');
+    if (c.key === 'name') attrs.push('class="nm"');
+    return '<td><input ' + attrs.join(' ') + '></td>';
+  }
 
-    table.hidden = false;
-    empty.hidden = true;
+  function renderSection(sec) {
+    const card = $('.sec-card[data-sec="' + sec + '"]');
+    const table = $('.edit-table[data-sec="' + sec + '"]', card);
+    const list = state[sec];
+    const cols = visibleCols(sec);
+    const n = dataCount(sec);
 
-    const colgroup = '<colgroup>' +
-      cols.map((c) => '<col style="width:' + c.editWidth + '">').join('') +
-      '<col style="width:64px"></colgroup>';
+    $('[data-count="' + sec + '"]').textContent = n ? n + ' ' + SEC_INFO[sec].unit : '';
+    card.classList.toggle('is-empty', !list.length);
 
-    const head = '<thead><tr>' +
-      cols.map((c) => '<th class="' + c.align + '">' + c.label + '</th>').join('') +
-      '<th class="tools-head"></th></tr></thead>';
+    const colgroup = '<colgroup><col class="c-grip">' +
+      cols.map((c) => '<col style="width:' + c.w + '">').join('') +
+      '<col class="c-act"></colgroup>';
 
-    const tools = '<td class="tools">' +
-      '<span class="grip" draggable="true" title="ドラッグで移動（Alt + ↑↓）" aria-hidden="true">⋮⋮</span>' +
-      '<button type="button" class="sec-btn" data-act="sec" title="入力／出力を切り替え" aria-label="入力／出力">IN</button>' +
-      '<button type="button" class="icon-btn" data-act="del" title="この行を削除" aria-label="この行を削除">✕</button>' +
-      '</td>';
+    const head = '<thead><tr><th class="th-grip"></th>' +
+      cols.map((c) => '<th class="' + c.align + '">' + esc(c.label) + '</th>').join('') +
+      '<th class="th-act"></th></tr></thead>';
 
-    let body = '';
+    const grip = '<td class="grip-cell"><span class="grip" draggable="true" title="ドラッグで並べ替え（Alt + ↑↓）">⋮⋮</span></td>';
+    const act = '<td class="act-cell"><button type="button" class="row-menu-btn" data-act="row-menu" title="行の操作" aria-label="行の操作">⋯</button></td>';
 
-    function addSecDivider(label, icon) {
-      body += '<tr class="sec-divider"><td colspan="' + cols.length + '">' + icon + esc(label) + '</td><td class="tools"></td></tr>';
-    }
-
-    /* group rows by section */
-    const rowGroups = [];
-    let grp = [];
-    let grpLabel = 'INPUT';
-    let grpIcon = '◉';
-    state.rows.forEach((row) => {
-      if (row.type === 'group') { grp.push(row); return; }
-      const sec = row.section === 'output' ? 'output' : 'input';
-      const label = sec === 'output' ? 'OUTPUT' : 'INPUT';
-      const icon = sec === 'output' ? '◎' : '◉';
-      if (label !== grpLabel && grp.length) {
-        rowGroups.push({ label: grpLabel, rows: grp, icon: grpIcon });
-        grp = [];
-        grpLabel = label;
-        grpIcon = icon;
+    const body = list.map((row) => {
+      if (row.type === 'group') {
+        return '<tr class="group-row" data-id="' + row.id + '">' + grip +
+          '<td class="group-cell" colspan="' + cols.length + '">' +
+          '<input data-k="name" value="' + esc(row.name) + '" placeholder="見出し（例: ドラムス）" aria-label="見出し" autocomplete="off" spellcheck="false">' +
+          '</td>' + act + '</tr>';
       }
-      grp.push(row);
-    });
-    if (grp.length) rowGroups.push({ label: grpLabel, rows: grp, icon: grpIcon });
-
-    rowGroups.forEach((group, gi) => {
-      addSecDivider(group.label, group.icon);
-      group.rows.forEach((row) => {
-        if (row.type === 'group') {
-          body += '<tr class="group-row" data-id="' + row.id + '">' +
-            '<td class="group-cell" colspan="' + cols.length + '">' +
-            '<input data-k="name" value="' + esc(row.name) + '" placeholder="見出し（例: ドラムス）" aria-label="見出し">' +
-            '</td>' + tools + '</tr>';
-          return;
-        }
-        const sec = row.section === 'output' ? 'output' : 'input';
-        body += '<tr data-id="' + row.id + '" data-section="' + sec + '">' + cols.map((c) => {
-          const attrs = [
-            'data-k="' + c.key + '"',
-            'value="' + esc(row[c.key]) + '"',
-            'aria-label="' + c.label + '"',
-          ];
-          if (c.key === 'kind') attrs.push('list="kind-list"');
-          if (c.key === 'no' || c.key === 'console') attrs.push('inputmode="numeric"');
-          if (c.align === 'c') attrs.push('class="ta-c"');
-          return '<td><input ' + attrs.join(' ') + '></td>';
-        }).join('') + tools + '</tr>';
-      });
-    });
+      return '<tr data-id="' + row.id + '">' + grip +
+        cols.map((c) => cellHTML(sec, row, c)).join('') + act + '</tr>';
+    }).join('');
 
     table.innerHTML = colgroup + head + '<tbody>' + body + '</tbody>';
+    refreshDupes(sec);
+  }
 
-    const inputN = state.rows.filter((r) => r.type !== 'group' && r.section !== 'output').length;
-    const outputN = state.rows.filter((r) => r.type !== 'group' && r.section === 'output').length;
-    const parts = [];
-    if (inputN) parts.push('IN ' + inputN);
-    if (outputN) parts.push('OUT ' + outputN);
-    count.textContent = parts.join(' / ') || '';
+  function renderEditor() {
+    const empty = !totalRows() && !state.meta.title;
+    $('#empty-state').hidden = !empty;
+    $$('.sec-card').forEach((card) => { card.hidden = empty; });
+    if (empty) return;
+    SECS.forEach(renderSection);
   }
 
   /* ---------------------------------------------------------
@@ -416,23 +573,30 @@
 
   const MM = 96 / 25.4;
 
+  function docLabel() {
+    const hasIn = state.input.length > 0;
+    const hasOut = state.output.length > 0;
+    if (hasIn && hasOut) return 'INPUT / OUTPUT LIST';
+    if (hasOut) return 'OUTPUT LIST';
+    return 'INPUT LIST';
+  }
+
   function headHTML(title, meta) {
     const metaParts = [];
     if (meta.venue) metaParts.push('<span><b>会場</b>' + esc(meta.venue) + '</span>');
     if (meta.date) metaParts.push('<span><b>日付</b>' + esc(formatDate(meta.date)) + '</span>');
     if (meta.author) metaParts.push('<span><b>作成</b>' + esc(meta.author) + '</span>');
-    const n = dataRows().length;
-    if (n) {
-      const inN = state.rows.filter((r) => r.type !== 'group' && r.section !== 'output').length;
-      const outN = state.rows.filter((r) => r.type !== 'group' && r.section === 'output').length;
-      const parts = ['<b>回線数</b>' + n];
+    const inN = dataCount('input');
+    const outN = dataCount('output');
+    if (inN || outN) {
+      const parts = [];
       if (inN) parts.push('IN ' + inN);
       if (outN) parts.push('OUT ' + outN);
-      metaParts.push('<span>' + parts.join(' / ') + '</span>');
+      metaParts.push('<span><b>回線数</b>' + parts.join(' / ') + '</span>');
     }
 
     let html = '<header class="doc-head">';
-    html += '<div class="dh-top"><span class="dh-label">INPUT LIST</span>' +
+    html += '<div class="dh-top"><span class="dh-label">' + docLabel() + '</span>' +
       '<span class="dh-rev">' + esc(meta.rev) + '</span></div>';
     html += '<h1 class="dh-title">' + esc(title) + '</h1>';
     if (metaParts.length) html += '<div class="dh-meta">' + metaParts.join('') + '</div>';
@@ -440,42 +604,34 @@
     return html;
   }
 
+  function printCell(row, c) {
+    if (c.toggle) return row[c.key] === '1' ? '48V' : '';
+    return esc(row[c.key]);
+  }
+
   function rowHTML(row, cols) {
     if (row.type === 'group') {
       return '<tr class="g"><td colspan="' + cols.length + '">' + (esc(row.name) || '&nbsp;') + '</td></tr>';
     }
     return '<tr>' + cols.map((c) => {
-      const cls = (c.align || '') + (c.key === 'name' ? ' nm' : '');
-      return '<td class="' + cls + '">' + esc(row[c.key]) + '</td>';
+      const cls = (c.align || '') + (c.key === 'name' ? ' nm' : '') + (c.toggle ? ' ph' : '');
+      return '<td class="' + cls.trim() + '">' + printCell(row, c) + '</td>';
     }).join('') + '</tr>';
   }
 
-  function buildSections() {
-    const out = [];
-    if (!state.rows.length) {
-      out.push({ label: null, cols: visibleColumns(), trs: [] });
-      return out;
-    }
-    let curSec = 'input';
-    let buf = { label: null, cols: sectionCols('input'), trs: [] };
-    state.rows.forEach((r) => {
-      if (r.type === 'group') { buf.trs.push(r); return; }
-      const s = r.section || 'input';
-      if (s !== curSec) {
-        if (buf.trs.length) out.push({ label: curSec === 'output' ? 'OUTPUT' : 'INPUT', cols: buf.cols, trs: buf.trs });
-        curSec = s;
-        buf = { label: null, cols: sectionCols(s), trs: [] };
-      }
-      buf.trs.push(r);
-    });
-    if (buf.trs.length) out.push({ label: curSec === 'output' ? 'OUTPUT' : 'INPUT', cols: buf.cols, trs: buf.trs });
-    return out;
+  function secLabelHTML(sec, cont) {
+    const n = dataCount(sec);
+    return '<div class="sec-label"><span>' + SEC_INFO[sec].label + '</span>' +
+      '<span class="sec-sub">' + SEC_INFO[sec].ja + (n ? ' ' + n + SEC_INFO[sec].unit : '') +
+      (cont ? '（続き）' : '') + '</span></div>';
   }
 
-  function sectionCols(section) {
-    const labels = SECTION_COLUMN_LABELS[section] || SECTION_COLUMN_LABELS.input;
-    const base = visibleColumns();
-    return base.map((c) => (labels[c.key] ? Object.assign({}, c, { label: labels[c.key] }) : c));
+  function tableOpen(cols) {
+    return '<table class="doc-table"><colgroup>' +
+      cols.map((c) => '<col style="width:' + c.pw + '">').join('') +
+      '</colgroup><thead><tr>' +
+      cols.map((c) => '<th class="' + (c.align || '') + '">' + esc(c.label) + '</th>').join('') +
+      '</tr></thead><tbody>';
   }
 
   function renderPrint() {
@@ -492,153 +648,114 @@
     const head = headHTML(title, meta);
     const run = '<div class="page-run"><span>' + esc(title) + '</span><span>' + esc(meta.rev) + '</span></div>';
     const note = meta.note && meta.note.trim() ? '<div class="doc-note">' + esc(meta.note) + '</div>' : '';
-    const emptyCell = '<td class="empty-row" colspan="' + visibleColumns().length + '">（回線がまだありません）</td>';
 
-    /* group rows by section */
-    const sections = buildSections();
-
-    const colgroup = (cols) => '<colgroup>' + cols.map((c) => '<col style="width:' + c.printWidth + '">').join('') + '</colgroup>';
-    const thead = (cols) => '<thead><tr>' + cols.map((c) => '<th class="' + (c.align || '') + '">' + c.label + '</th>').join('') + '</tr></thead>';
-    const secLabel = (s) => s.label ? '<div class="sec-label">' + esc(s.label) + '</div>' : '';
-    const tableWrap = (s, body) => secLabel(s) + '<table class="doc-table">' + colgroup(s.cols) + thead(s.cols) + '<tbody>' + body + '</tbody></table>';
+    const secs = SECS.filter((s) => state[s].length);
 
     /* ---- pass 1: measure ---- */
-    let measureHtml = head + run;
-    sections.forEach((s) => {
-      const body = s.trs.length ? s.trs.map((r) => rowHTML(r, s.cols)).join('') : emptyCell;
-      measureHtml += tableWrap(s, body);
+    let mh = head + run;
+    secs.forEach((sec) => {
+      const cols = visibleCols(sec);
+      mh += '<div class="m-sec" data-sec="' + sec + '">' + secLabelHTML(sec, false) + tableOpen(cols) +
+        state[sec].map((r) => rowHTML(r, cols)).join('') + '</tbody></table></div>';
     });
-    measureHtml += note;
+    mh += note;
 
     measure.dataset.paper = paper;
     measure.dataset.density = state.density;
     measure.style.width = pageW + 'mm';
-    measure.innerHTML = measureHtml;
+    measure.innerHTML = mh;
 
-    const px = (el) => (el ? el.offsetHeight : 0);
-    const headH = px(measure.querySelector('.doc-head'));
-    const runH = px(measure.querySelector('.page-run')) + 2 * MM;
-    const noteH = px(measure.querySelector('.doc-note'));
+    const px = (el) => (el ? el.getBoundingClientRect().height : 0);
+    /* 計測できない状態（非表示など）では、直前のページ割りを維持する */
+    if (!px($('.doc-head', measure)) && pagesEl.children.length) return;
+    const headH = px($('.doc-head', measure)) + 3 * MM;      // + margin-bottom
+    const runH = px($('.page-run', measure)) + 2 * MM;
+    const noteEl = $('.doc-note', measure);
+    const noteH = noteEl ? px(noteEl) + 3 * MM : 0;
 
-    /* build flat block list with state row reference */
-    const rowStack = []; // { si, tri, tr } where tri = index within section.trs
-    sections.forEach((s, si) => {
-      s.trs.forEach((tr, tri) => {
-        rowStack.push({ si, tri, tr, h: 0 });
-      });
-    });
-
-    /* measure each section's label + thead */
-    const secLabelHeights = sections.map((s, si) => {
-      if (!s.label) return 0;
-      return px(measure.querySelectorAll('.sec-label')[si]);
-    });
-    const secTheadHeights = sections.map((s, si) => {
-      return px(measure.querySelectorAll('.doc-table thead')[si]);
-    });
-
-    /* measure each row's height */
-    let idx = 0;
-    sections.forEach((s, si) => {
-      const table = measure.querySelectorAll('.doc-table')[si];
-      const trs = table.querySelectorAll('tbody tr');
-      trs.forEach((tr) => {
-        if (idx < rowStack.length) rowStack[idx].h = px(tr);
-        idx += 1;
-      });
+    const secMeta = {};
+    secs.forEach((sec) => {
+      const box = $('.m-sec[data-sec="' + sec + '"]', measure);
+      const label = $('.sec-label', box);
+      const ls = getComputedStyle(label);
+      secMeta[sec] = {
+        labelH: px(label) + parseFloat(ls.marginTop) + parseFloat(ls.marginBottom),
+        theadH: px($('thead', box)),
+        rowH: $$('tbody tr', box).map(px),
+      };
     });
 
     /* ---- pass 2: paginate ---- */
-    const contentH = (pageH - 24) * MM;
-    const headGap = 3 * MM;
-    const safety = 1.5 * MM;
-    const pageList = [];
+    const contentH = (pageH - 24) * MM - 1.5 * MM; // padding 12mm × 2 + safety
+    const pages = [];
+    let page = null;
+    let avail = 0;
 
-    if (!rowStack.length) {
-      pageList.push({ first: true, items: [], note: !!noteH });
-    } else {
-      let ri = 0;
-      let first = true;
-      while (ri < rowStack.length) {
-        let avail = contentH - safety;
-        if (first) avail -= headH + headGap;
-        const items = [];
-        // store which section tables are open
-        let openTable = null;
-        while (ri < rowStack.length) {
-          if (!items.length && !first) {
-            if (avail < runH) break;
-            avail -= runH;
-          }
-          const r = rowStack[ri];
-          /* section overhead (label + thead) if this row is in a new section */
-          if (r.si !== openTable) {
-            const overhead = secLabelHeights[r.si] + secTheadHeights[r.si];
-            if (items.length && overhead > avail) break;
-            avail -= overhead;
-            openTable = r.si;
-          }
-          if (r.h > avail) break;
-          items.push(ri);
-          avail -= r.h;
-          ri += 1;
-        }
-        pageList.push({ items: items, first: first, note: !!noteH });
-        first = false;
-        if (!items.length) break;
-      }
+    function newPage() {
+      page = { first: !pages.length, blocks: [], note: false };
+      pages.push(page);
+      avail = contentH - (page.first ? headH : runH);
     }
+    newPage();
 
-    if (noteH && pageList.length) {
-      const last = pageList[pageList.length - 1];
-      if (last) {
-        // check if note fits on last page; if not, add a dedicated note page (not needed for now)
+    secs.forEach((sec, si) => {
+      const m = secMeta[sec];
+      const list = state[sec];
+      if (si > 0 && sec === 'output' && state.outputBreak && page.blocks.length) newPage();
+
+      let block = null;
+      let i = 0;
+      while (i < list.length) {
+        const h = m.rowH[i] || 0;
+        const isGroup = list[i].type === 'group';
+        /* 見出し行が単独でページ末尾に残らないよう、次の行ぶんも確保する */
+        const need = h + (isGroup && i + 1 < list.length ? (m.rowH[i + 1] || 0) : 0);
+        const overhead = block ? 0 : m.labelH + m.theadH;
+
+        if (overhead + need > avail && (block || page.blocks.length)) {
+          newPage();
+          block = null;
+          continue;
+        }
+        if (!block) {
+          block = { sec: sec, cont: i > 0, rows: [] };
+          page.blocks.push(block);
+          avail -= overhead;
+        }
+        block.rows.push(list[i]);
+        avail -= h;
+        i += 1;
       }
+    });
+
+    if (note) {
+      if (noteH > avail && (page.blocks.length || !page.first)) newPage();
+      page.note = true;
     }
 
     /* ---- pass 3: render ---- */
-    const total = Math.max(pageList.length, 1);
-    const shownSections = {}; // track which sections have already been labeled
-    pagesEl.innerHTML = pageList.map((page, pageIdx) => {
-      let inner = page.first ? head : run;
-      if (page.items && page.items.length) {
-        let curSec = -1;
-        let emitRows = [];
-        const flush = () => {
-          if (!emitRows.length) return;
-          const si = emitRows[0].si;
-          const sc = sections[si];
-          if (sc.label && !shownSections[si]) {
-            inner += '<div class="sec-label">' + esc(sc.label) + '</div>';
-            shownSections[si] = true;
-          }
-          inner += '<table class="doc-table"><colgroup>' +
-            sc.cols.map((c) => '<col style="width:' + c.printWidth + '">').join('') +
-            '</colgroup><thead><tr>' +
-            sc.cols.map((c) => '<th class="' + (c.align || '') + '">' + c.label + '</th>').join('') +
-            '</tr></thead><tbody>';
-          emitRows.forEach((er) => { inner += rowHTML(er.tr, sections[er.si].cols); });
-          inner += '</tbody></table>';
-          emitRows = [];
-        };
-        page.items.forEach((ri) => {
-          const r = rowStack[ri];
-          if (r.si !== curSec) { flush(); curSec = r.si; }
-          emitRows.push(r);
-        });
-        flush();
+    const total = pages.length;
+    pagesEl.innerHTML = pages.map((p, pi) => {
+      let inner = p.first ? head : run;
+      if (!secs.length && p.first) {
+        inner += '<div class="doc-empty">（回線がまだありません）</div>';
       }
-      if (page.note) inner += note;
-      inner += '<div class="page-num">' + (pageIdx + 1) + ' / ' + total + '</div>';
+      p.blocks.forEach((b) => {
+        const cols = visibleCols(b.sec);
+        inner += secLabelHTML(b.sec, b.cont) + tableOpen(cols) +
+          b.rows.map((r) => rowHTML(r, cols)).join('') + '</tbody></table>';
+      });
+      if (p.note) inner += note;
+      inner += '<div class="page-num">' + (pi + 1) + ' / ' + total + '</div>';
       return '<section class="print-sheet sheet-page" data-paper="' + paper + '" data-density="' + state.density + '">' + inner + '</section>';
     }).join('');
 
     applyPageStyle();
 
     const tag = $('#preview-tag');
-    if (tag) {
-      tag.textContent = 'A4 ' + (paper === 'landscape' ? '横' : '縦') + ' / ' + total + 'ページ';
-    }
+    if (tag) tag.textContent = 'A4 ' + (paper === 'landscape' ? '横' : '縦') + ' / ' + total + 'ページ';
+    const pc = $('#page-count');
+    if (pc) pc.textContent = 'A4 ' + (paper === 'landscape' ? '横' : '縦') + ' · ' + total + 'ページ';
 
     if ($('#preview').classList.contains('open')) fitPreview();
   }
@@ -666,48 +783,54 @@
   function renderSettings() {
     $$('.seg').forEach((seg) => {
       const value = seg.dataset.setting === 'paper' ? state.paper : state.density;
-      $$('button', seg).forEach((btn) => {
-        btn.classList.toggle('on', btn.dataset.val === value);
-      });
+      $$('button', seg).forEach((btn) => btn.classList.toggle('on', btn.dataset.val === value));
     });
 
-    $$('#column-chips input').forEach((input) => {
-      input.checked = state.hidden.indexOf(input.value) === -1;
+    $$('.chips input[data-col]').forEach((input) => {
+      input.checked = state.hidden.indexOf(input.dataset.col) === -1;
     });
+
+    const brk = $('#opt-output-break');
+    if (brk) brk.checked = !!state.outputBreak;
 
     const note = $('.summary-note');
     if (note) {
       const paper = state.paper === 'landscape' ? '横' : '縦';
       const size = { compact: '小', normal: '中', large: '大' }[state.density] || '中';
-      note.textContent = 'A4 ' + paper + ' / 文字 ' + size;
+      note.textContent = 'A4 ' + paper + ' / 文字 ' + size + (state.outputBreak ? ' / OUTPUT 改ページ' : '');
     }
 
     applyPageStyle();
   }
 
   function syncMeta() {
-    $$('[data-meta]').forEach((el) => {
-      el.value = state.meta[el.dataset.meta] || '';
-    });
+    $$('[data-meta]').forEach((el) => { el.value = state.meta[el.dataset.meta] || ''; });
   }
 
   function buildColumnChips() {
-    const box = $('#column-chips');
-    box.innerHTML = OPTIONAL_KEYS.map((key) => {
-      const col = COLUMNS.find((c) => c.key === key);
-      return '<label class="chip"><input type="checkbox" value="' + key + '"><span>' + col.label + '</span></label>';
-    }).join('');
+    SECS.forEach((sec) => {
+      const box = $('#column-chips-' + sec);
+      box.innerHTML = COLS[sec].filter((c) => !c.fixed).map((c) => {
+        const id = sec + ':' + c.key;
+        return '<label class="chip"><input type="checkbox" data-col="' + id + '"><span>' + esc(c.label) + '</span></label>';
+      }).join('');
+    });
 
-    box.addEventListener('change', (e) => {
-      const input = e.target.closest('input[type="checkbox"]');
-      if (!input) return;
-      snapshot();
-      if (input.checked) {
-        state.hidden = state.hidden.filter((k) => k !== input.value);
-      } else if (state.hidden.indexOf(input.value) === -1) {
-        state.hidden.push(input.value);
+    $('#settings').addEventListener('change', (e) => {
+      const input = e.target.closest('input[data-col]');
+      if (input) {
+        snapshot();
+        const id = input.dataset.col;
+        if (input.checked) state.hidden = state.hidden.filter((k) => k !== id);
+        else if (state.hidden.indexOf(id) === -1) state.hidden.push(id);
+        commit();
+        return;
       }
-      commit();
+      if (e.target.id === 'opt-output-break') {
+        snapshot();
+        state.outputBreak = e.target.checked;
+        commit();
+      }
     });
   }
 
@@ -715,142 +838,340 @@
      commit
      --------------------------------------------------------- */
 
+  let suppressArm = false;
+
+  function focusEl(el) {
+    if (!el) return;
+    suppressArm = true;
+    el.focus();
+    if (el.select) el.select();
+    suppressArm = false;
+    armPending();
+  }
+
   function commit(opts) {
     const options = opts || {};
     save();
     renderSettings();
     renderEditor();
     renderPrint();
-    if (options.focus) {
-      const el = $(options.focus);
-      if (el) {
-        skipFocusSnapshot = true;
-        el.focus();
-        if (el.select) el.select();
-        skipFocusSnapshot = false;
-      }
-    }
+    if (options.focus) focusEl($(options.focus));
+  }
+
+  function cellSel(id, key) {
+    return '.edit-table tr[data-id="' + id + '"] [data-k="' + key + '"]';
   }
 
   /* ---------------------------------------------------------
-     row operations
+     row operations（すべてセクション内で完結）
      --------------------------------------------------------- */
 
-  function nextNo() {
+  function prevDataRow(list, index) {
+    for (let i = index; i >= 0; i -= 1) if (list[i] && list[i].type !== 'group') return list[i];
+    return null;
+  }
+
+  function maxNo(sec) {
     let max = 0;
-    state.rows.forEach((r) => {
+    state[sec].forEach((r) => {
       if (r.type === 'group') return;
       const n = parseInt(r.no, 10);
       if (!isNaN(n) && n > max) max = n;
     });
-    return String(max + 1);
+    return max;
   }
 
-  function addRow(afterId, focusKey, section) {
-    snapshot();
-    const row = blankRow(nextNo(), section || 'input');
-    let index = state.rows.length;
-    if (afterId) {
-      const i = state.rows.findIndex((r) => r.id === afterId);
-      if (i !== -1) index = i + 1;
+  /* 直前の行を参考に、No.・卓CH・BOX を +1、種別・ケーブル・長さを引き継ぐ */
+  function smartRow(sec, ref) {
+    const row = blankRow(sec);
+    row.no = String(maxNo(sec) + 1);
+    if (!ref) {
+      if (sec === 'input') row.console = row.no;
+      return row;
     }
-    state.rows.splice(index, 0, row);
-    commit({ focus: '[data-id="' + row.id + '"] [data-k="' + (focusKey || 'name') + '"]' });
+    row.console = incr(ref.console);
+    row.box = incr(ref.box);
+    row.cable = ref.cable;
+    row.length = ref.length;
+    if (sec === 'input') {
+      row.kind = ref.kind;
+      row.stand = ref.stand;
+    }
+    return row;
   }
 
-  function addGroup(afterId) {
+  function insertIndex(sec, afterId) {
+    if (!afterId) return state[sec].length;
+    const i = state[sec].findIndex((r) => r.id === afterId);
+    return i === -1 ? state[sec].length : i + 1;
+  }
+
+  function addRow(sec, afterId, focusKey) {
+    snapshot();
+    const at = insertIndex(sec, afterId);
+    const row = smartRow(sec, prevDataRow(state[sec], at - 1));
+    state[sec].splice(at, 0, row);
+    commit({ focus: cellSel(row.id, focusKey || 'name') });
+  }
+
+  function addRows(sec, count) {
+    snapshot();
+    let last = null;
+    for (let i = 0; i < count; i += 1) {
+      const row = smartRow(sec, prevDataRow(state[sec], state[sec].length - 1));
+      state[sec].push(row);
+      if (!last) last = row;
+    }
+    commit({ focus: cellSel(last.id, 'name') });
+  }
+
+  function insertRowAbove(id) {
+    const f = findRow(id);
+    if (!f) return;
+    snapshot();
+    const row = smartRow(f.sec, prevDataRow(f.list, f.index - 1));
+    row.no = '';
+    f.list.splice(f.index, 0, row);
+    commit({ focus: cellSel(row.id, 'name') });
+  }
+
+  function addGroup(sec, afterId) {
     snapshot();
     const group = { id: uid(), type: 'group', name: '' };
-    let index = state.rows.length;
-    if (afterId) {
-      const i = state.rows.findIndex((r) => r.id === afterId);
-      if (i !== -1) index = i + 1;
-    }
-    state.rows.splice(index, 0, group);
-    commit({ focus: '[data-id="' + group.id + '"] [data-k="name"]' });
+    state[sec].splice(insertIndex(sec, afterId), 0, group);
+    commit({ focus: cellSel(group.id, 'name') });
   }
 
-  function deleteRow(id) {
+  function duplicateRow(id, focusKey) {
+    const f = findRow(id);
+    if (!f) return;
     snapshot();
-    state.rows = state.rows.filter((r) => r.id !== id);
-    commit();
+    const copy = Object.assign({}, f.row, { id: uid() });
+    if (copy.type !== 'group') {
+      copy.no = String(maxNo(f.sec) + 1);
+      copy.console = incr(f.row.console) || f.row.console;
+      copy.box = incr(f.row.box) || f.row.box;
+    }
+    f.list.splice(f.index + 1, 0, copy);
+    commit({ focus: cellSel(copy.id, focusKey || 'name') });
+  }
+
+  function deleteRow(id, focusKey) {
+    const f = findRow(id);
+    if (!f) return;
+    snapshot();
+    f.list.splice(f.index, 1);
+    const near = f.list[f.index] || f.list[f.index - 1];
+    let sel;
+    if (near) sel = cellSel(near.id, near.type === 'group' ? 'name' : (focusKey || 'name'));
+    commit(sel ? { focus: sel } : undefined);
+    toast('行を削除しました（⌘Z で戻せます）');
   }
 
   function moveRow(id, delta, focusKey) {
-    const i = state.rows.findIndex((r) => r.id === id);
-    const j = i + delta;
-    if (i === -1 || j < 0 || j >= state.rows.length) return;
+    const f = findRow(id);
+    if (!f) return;
+    const j = f.index + delta;
+    if (j < 0 || j >= f.list.length) return;
     snapshot();
-    const row = state.rows.splice(i, 1)[0];
-    state.rows.splice(j, 0, row);
-    commit(focusKey ? { focus: '[data-id="' + id + '"] [data-k="' + focusKey + '"]' } : undefined);
+    f.list.splice(f.index, 1);
+    f.list.splice(j, 0, f.row);
+    commit(focusKey ? { focus: cellSel(id, focusKey) } : undefined);
   }
 
-  function focusCell(id, key) {
-    const el = $('[data-id="' + id + '"] [data-k="' + key + '"]');
-    if (!el) return;
-    skipFocusSnapshot = true;
-    el.focus();
-    if (el.select) el.select();
-    skipFocusSnapshot = false;
-  }
-
-  function renumber() {
-    if (!state.rows.length) return;
+  function renumber(sec) {
+    if (!dataCount(sec)) return;
     snapshot();
     let n = 1;
-    state.rows.forEach((row) => {
+    state[sec].forEach((row) => {
       if (row.type === 'group') return;
       row.no = String(n);
       n += 1;
     });
     commit();
-    toast('連番を振り直しました');
+    toast(SEC_INFO[sec].label + ' の No. を 1 から振り直しました');
+  }
+
+  function clearSection(sec) {
+    if (!state[sec].length) return;
+    if (!window.confirm(SEC_INFO[sec].label + ' の行をすべて削除します。よろしいですか？')) return;
+    snapshot();
+    state[sec] = [];
+    commit();
+    toast(SEC_INFO[sec].label + ' を空にしました（⌘Z で戻せます）');
   }
 
   /* ---------------------------------------------------------
-     drag & drop
+     paste（Excel / スプレッドシートからの複数セル貼り付け）
      --------------------------------------------------------- */
 
-  let dragId = null;
+  function parseTSV(text) {
+    const rows = [];
+    let row = [];
+    let cell = '';
+    let q = false;
+    for (let i = 0; i < text.length; i += 1) {
+      const ch = text[i];
+      if (q) {
+        if (ch === '"' && text[i + 1] === '"') { cell += '"'; i += 1; }
+        else if (ch === '"') q = false;
+        else cell += ch;
+      } else if (ch === '"' && cell === '') q = true;
+      else if (ch === '\t') { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i + 1] === '\n') i += 1;
+        row.push(cell); rows.push(row); row = []; cell = '';
+      } else cell += ch;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    while (rows.length && rows[rows.length - 1].every((c) => c.trim() === '')) rows.pop();
+    return rows;
+  }
+
+  function handlePaste(e, input) {
+    const text = (e.clipboardData || window.clipboardData).getData('text');
+    if (!text || (text.indexOf('\t') === -1 && !/[\r\n]./.test(text.trim()))) return;
+    const grid = parseTSV(text);
+    if (!grid.length) return;
+    e.preventDefault();
+
+    const tr = input.closest('tr[data-id]');
+    const f = findRow(tr.dataset.id);
+    if (!f) return;
+    const cols = visibleCols(f.sec);
+    const startCol = Math.max(0, cols.findIndex((c) => c.key === input.dataset.k));
+
+    snapshot();
+    let idx = f.index;
+    let firstId = null;
+    let filled = 0;
+    grid.forEach((cells) => {
+      /* 見出し行は飛ばして次のデータ行へ（足りなければ追加） */
+      while (idx < f.list.length && f.list[idx].type === 'group' && !(f.list[idx].id === f.row.id && startCol === 1)) idx += 1;
+      if (idx >= f.list.length) {
+        const r = blankRow(f.sec);
+        f.list.push(r);
+      }
+      const row = f.list[idx];
+      if (!firstId) firstId = row.id;
+      cells.forEach((v, ci) => {
+        const c = cols[startCol + ci];
+        if (!c) return;
+        if (row.type === 'group') { if (c.key === 'name') row.name = v.trim(); return; }
+        row[c.key] = c.toggle ? truthyPhantom(v) : v.trim();
+      });
+      filled += 1;
+      idx += 1;
+    });
+    commit({ focus: cellSel(firstId, input.dataset.k) });
+    toast(filled + ' 行を貼り付けました');
+  }
+
+  /* ---------------------------------------------------------
+     row menu（行の ⋯ ボタン）
+     --------------------------------------------------------- */
+
+  let rowMenuId = null;
+
+  function openRowMenu(btn) {
+    const tr = btn.closest('tr[data-id]');
+    const menu = $('#row-menu');
+    if (rowMenuId === tr.dataset.id && menu.classList.contains('open')) { closeRowMenu(); return; }
+    rowMenuId = tr.dataset.id;
+    const isGroup = tr.classList.contains('group-row');
+    $('[data-ract="duplicate"]', menu).hidden = false;
+    $('[data-ract="to-group"]', menu).hidden = isGroup;
+    menu.classList.add('open');
+    const r = btn.getBoundingClientRect();
+    const mh = menu.offsetHeight;
+    const mw = menu.offsetWidth;
+    let top = r.bottom + 4;
+    if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 4);
+    menu.style.top = top + 'px';
+    menu.style.left = Math.max(8, Math.min(window.innerWidth - mw - 8, r.right - mw)) + 'px';
+    btn.classList.add('active');
+  }
+
+  function closeRowMenu() {
+    const menu = $('#row-menu');
+    menu.classList.remove('open');
+    rowMenuId = null;
+    $$('.row-menu-btn.active').forEach((b) => b.classList.remove('active'));
+  }
+
+  function bindRowMenu() {
+    const menu = $('#row-menu');
+    menu.addEventListener('click', (e) => {
+      const item = e.target.closest('button[data-ract]');
+      if (!item || !rowMenuId) return;
+      const id = rowMenuId;
+      const f = findRow(id);
+      closeRowMenu();
+      if (!f) return;
+      const act = item.dataset.ract;
+      if (act === 'above') insertRowAbove(id);
+      else if (act === 'below') addRow(f.sec, id);
+      else if (act === 'group-below') addGroup(f.sec, id);
+      else if (act === 'duplicate') duplicateRow(id);
+      else if (act === 'up') moveRow(id, -1);
+      else if (act === 'down') moveRow(id, 1);
+      else if (act === 'to-group') {
+        snapshot();
+        f.list.splice(f.index, 0, { id: uid(), type: 'group', name: '' });
+        commit({ focus: cellSel(f.list[f.index].id, 'name') });
+      } else if (act === 'delete') deleteRow(id);
+    });
+    document.addEventListener('mousedown', (e) => {
+      if (!menu.classList.contains('open')) return;
+      if (e.target.closest('#row-menu') || e.target.closest('.row-menu-btn')) return;
+      closeRowMenu();
+    });
+    window.addEventListener('scroll', closeRowMenu, true);
+    window.addEventListener('resize', closeRowMenu);
+  }
+
+  /* ---------------------------------------------------------
+     drag & drop（同じセクション内のみ）
+     --------------------------------------------------------- */
+
+  let drag = null; // { id, sec }
   let dropTarget = null;
 
   function clearDropMarks() {
-    $$('#edit-table tr.drop-before, #edit-table tr.drop-after').forEach((tr) => {
+    $$('.edit-table tr.drop-before, .edit-table tr.drop-after').forEach((tr) => {
       tr.classList.remove('drop-before', 'drop-after');
     });
   }
 
   function bindDragAndDrop(table) {
+    const sec = table.dataset.sec;
+
     table.addEventListener('dragstart', (e) => {
       const grip = e.target.closest('.grip');
       if (!grip) return;
       const tr = grip.closest('tr[data-id]');
-      if (!tr) return;
-      dragId = tr.dataset.id;
+      drag = { id: tr.dataset.id, sec: sec };
       try {
         e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', dragId);
+        e.dataTransfer.setData('text/plain', drag.id);
+        e.dataTransfer.setDragImage(tr, 20, tr.offsetHeight / 2);
       } catch (err) { /* ignore */ }
       tr.classList.add('dragging');
     });
 
     table.addEventListener('dragend', () => {
-      if (dragId) {
-        const tr = $('tr[data-id="' + dragId + '"]');
-        if (tr) tr.classList.remove('dragging');
-      }
-      dragId = null;
+      $$('.edit-table tr.dragging').forEach((tr) => tr.classList.remove('dragging'));
+      drag = null;
       dropTarget = null;
       clearDropMarks();
     });
 
     table.addEventListener('dragover', (e) => {
-      if (!dragId) return;
+      if (!drag || drag.sec !== sec) return;
       e.preventDefault();
       clearDropMarks();
-      const tr = e.target.closest('tr[data-id]');
-      if (!tr || tr.dataset.id === dragId) { dropTarget = null; return; }
+      const tr = e.target.closest('tbody tr[data-id]');
+      if (!tr || tr.dataset.id === drag.id) { dropTarget = null; return; }
       const rect = tr.getBoundingClientRect();
       const after = e.clientY > rect.top + rect.height / 2;
       tr.classList.add(after ? 'drop-after' : 'drop-before');
@@ -858,19 +1179,17 @@
     });
 
     table.addEventListener('drop', (e) => {
-      if (!dragId) return;
+      if (!drag || drag.sec !== sec) return;
       e.preventDefault();
-      const from = state.rows.findIndex((r) => r.id === dragId);
-      if (from === -1) return;
+      const list = state[sec];
+      const from = list.findIndex((r) => r.id === drag.id);
+      if (from === -1 || !dropTarget) return;
       snapshot();
-      const row = state.rows.splice(from, 1)[0];
-      let to = state.rows.length;
-      if (dropTarget) {
-        const idx = state.rows.findIndex((r) => r.id === dropTarget.id);
-        to = idx === -1 ? state.rows.length : idx + (dropTarget.after ? 1 : 0);
-      }
-      state.rows.splice(to, 0, row);
-      dragId = null;
+      const row = list.splice(from, 1)[0];
+      const idx = list.findIndex((r) => r.id === dropTarget.id);
+      const to = idx === -1 ? list.length : idx + (dropTarget.after ? 1 : 0);
+      list.splice(to, 0, row);
+      drag = null;
       dropTarget = null;
       clearDropMarks();
       commit();
@@ -884,19 +1203,15 @@
   function fitPreview() {
     const modal = $('#preview');
     if (!modal.classList.contains('open')) return;
-
     const stack = $('#sheet-pages');
     const stage = $('#sheet-stage');
     const scroll = $('#preview-scroll');
-
     stack.style.transform = 'none';
     const width = stack.offsetWidth;
     const height = stack.offsetHeight;
     if (!width) return;
-
     const available = scroll.clientWidth - 32;
     const scale = Math.max(0.15, Math.min(1, available / width));
-
     stack.style.transform = 'scale(' + scale + ')';
     stage.style.width = Math.round(width * scale) + 'px';
     stage.style.height = Math.round(height * scale) + 'px';
@@ -905,15 +1220,11 @@
   function openPreview() {
     closeMenu();
     renderPrint();
-    const modal = $('#preview');
-    modal.classList.add('open');
+    $('#preview').classList.add('open');
     document.body.classList.add('no-scroll');
     $('#preview-scroll').scrollTop = 0;
     requestAnimationFrame(fitPreview);
-    setTimeout(() => {
-      fitPreview();
-      $('#preview-scroll').scrollTop = 0;
-    }, 60);
+    setTimeout(() => { fitPreview(); $('#preview-scroll').scrollTop = 0; }, 60);
   }
 
   function closePreview() {
@@ -927,23 +1238,20 @@
   function printDoc() {
     closeMenu();
     renderPrint();
-
     const originalTitle = document.title;
     const base = (state.meta.title || '音響回線表').trim().replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60);
     document.title = base || '音響回線表';
-
     const restore = () => {
       document.title = originalTitle;
       window.removeEventListener('afterprint', restore);
     };
     window.addEventListener('afterprint', restore);
     setTimeout(restore, 5000);
-
     window.print();
   }
 
   /* ---------------------------------------------------------
-     menu
+     top menu
      --------------------------------------------------------- */
 
   function openMenu() {
@@ -959,24 +1267,20 @@
   function bindMenu() {
     const btn = $('#btn-menu');
     const menu = $('#menu');
-
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (menu.classList.contains('open')) closeMenu(); else openMenu();
     });
-
     document.addEventListener('click', (e) => {
       if (!menu.classList.contains('open')) return;
       if (e.target.closest('#menu') || e.target.closest('#btn-menu')) return;
       closeMenu();
     });
-
     menu.addEventListener('click', (e) => {
       const item = e.target.closest('button[data-act]');
       if (!item) return;
       const act = item.dataset.act;
       closeMenu();
-
       if (act === 'undo') undo();
       else if (act === 'redo') redo();
       else if (act === 'new') newDoc();
@@ -985,6 +1289,7 @@
       else if (act === 'export-json') exportJSON();
       else if (act === 'import-json') $('#file-input').click();
       else if (act === 'export-csv') exportCSV();
+      else if (act === 'shortcuts') $('#shortcuts').showModal();
     });
   }
 
@@ -993,34 +1298,27 @@
      --------------------------------------------------------- */
 
   function confirmReplace(message) {
-    if (!state.rows.length && !state.meta.title) return true;
+    if (!totalRows() && !state.meta.title) return true;
     return window.confirm(message || '現在の内容は置き換わります。よろしいですか？');
+  }
+
+  function replaceState(next, message) {
+    snapshot();
+    state = next;
+    syncMeta();
+    commit();
+    toast(message);
   }
 
   function newDoc() {
     if (!confirmReplace()) return;
-    snapshot();
-    state = blankDoc(8);
-    syncMeta();
-    commit();
-    toast('新規作成しました');
+    replaceState(blankDoc(), '新規作成しました（⌘Z で戻せます）');
   }
 
   function loadSample(kind) {
-    if (kind === 'blank') {
-      snapshot();
-      state = blankDoc(8);
-      syncMeta();
-      commit();
-      toast('空の表で始めました');
-      return;
-    }
+    if (kind === 'blank') { replaceState(blankDoc(), '空の表で始めました'); return; }
     if (!confirmReplace('サンプルに置き換えます。よろしいですか？')) return;
-    snapshot();
-    state = sampleDoc(kind);
-    syncMeta();
-    commit();
-    toast('サンプルを読み込みました');
+    replaceState(sampleDoc(kind), 'サンプルを読み込みました');
   }
 
   /* ---------------------------------------------------------
@@ -1052,18 +1350,24 @@
 
   function csvCell(value) {
     const s = String(value == null ? '' : value);
-    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
 
   function exportCSV() {
-    const cols = visibleColumns();
-    const lines = [cols.map((c) => csvCell(c.label)).join(',')];
-    state.rows.forEach((row) => {
-      if (row.type === 'group') {
-        lines.push(['# ' + row.name].concat(cols.slice(1).map(() => '')).map(csvCell).join(','));
-      } else {
-        lines.push(cols.map((c) => csvCell(row[c.key])).join(','));
-      }
+    const lines = [];
+    SECS.forEach((sec) => {
+      if (!state[sec].length) return;
+      const cols = visibleCols(sec);
+      if (lines.length) lines.push('');
+      lines.push(csvCell('[' + SEC_INFO[sec].label + ']'));
+      lines.push(cols.map((c) => csvCell(c.label)).join(','));
+      state[sec].forEach((row) => {
+        if (row.type === 'group') {
+          lines.push(['# ' + row.name].concat(cols.slice(1).map(() => '')).map(csvCell).join(','));
+        } else {
+          lines.push(cols.map((c) => csvCell(c.toggle ? (row[c.key] === '1' ? '48V' : '') : row[c.key])).join(','));
+        }
+      });
     });
     download(fileBase() + '.csv', '\ufeff' + lines.join('\r\n'), 'text/csv');
     toast('CSVを書き出しました');
@@ -1075,11 +1379,7 @@
       try {
         const raw = JSON.parse(String(reader.result));
         if (!raw || typeof raw !== 'object') throw new Error('format');
-        snapshot();
-        state = normalize(raw);
-        syncMeta();
-        commit();
-        toast('JSONを読み込みました');
+        replaceState(normalize(raw), 'JSONを読み込みました');
       } catch (err) {
         toast('読み込めませんでした（JSON形式を確認してください）');
       }
@@ -1104,10 +1404,13 @@
      bindings
      --------------------------------------------------------- */
 
+  let focusValue = null; // フォーカス時のセル値（未編集なら ⌘Z を表全体の取り消しに回す）
+
   function bindMeta() {
     $$('[data-meta]').forEach((el) => {
-      el.addEventListener('focusin', () => snapshot());
+      el.addEventListener('focusin', () => { armPending(); focusValue = el.value; });
       el.addEventListener('input', () => {
+        consumePending();
         state.meta[el.dataset.meta] = el.value;
         save();
         schedulePrint();
@@ -1115,77 +1418,128 @@
     });
   }
 
+  function editableCells(table) {
+    return $$('tbody tr[data-id]', table);
+  }
+
+  function moveFocusVert(input, dir) {
+    const tr = input.closest('tr[data-id]');
+    const key = input.dataset.k;
+    const table = tr.closest('table');
+    const rows = editableCells(table);
+    let i = rows.indexOf(tr) + dir;
+    while (i >= 0 && i < rows.length) {
+      const target = $('[data-k="' + key + '"]', rows[i]) || (rows[i].classList.contains('group-row') ? null : null);
+      if (target) { focusEl(target); return true; }
+      i += dir;
+    }
+    return false;
+  }
+
   function bindTable(table) {
+    const sec = table.dataset.sec;
+
     table.addEventListener('input', (e) => {
       const input = e.target.closest('input[data-k]');
       if (!input) return;
       const tr = input.closest('tr[data-id]');
-      if (!tr) return;
-      const row = state.rows.find((r) => r.id === tr.dataset.id);
-      if (!row) return;
-      row[input.dataset.k] = input.value;
+      const f = tr && findRow(tr.dataset.id);
+      if (!f) return;
+      consumePending();
+      f.row[input.dataset.k] = input.value;
       save();
       schedulePrint();
+      const col = COLS[sec].find((c) => c.key === input.dataset.k);
+      if (col && col.dupe) refreshDupes(sec);
+      if (input.dataset.k === 'no' || f.row.type === 'group') return;
+      $('[data-count="' + sec + '"]').textContent = dataCount(sec) + ' ' + SEC_INFO[sec].unit;
     });
 
     table.addEventListener('focusin', (e) => {
-      if (skipFocusSnapshot) return;
-      if (e.target.matches('input')) snapshot();
+      if (!e.target.matches('input')) return;
+      $$('.edit-table tr.is-current').forEach((tr) => tr.classList.remove('is-current'));
+      const tr = e.target.closest('tr');
+      if (tr) tr.classList.add('is-current');
+      focusValue = e.target.value;
+      if (!suppressArm) armPending();
+    });
+
+    table.addEventListener('focusout', (e) => {
+      const tr = e.target.closest('tr');
+      if (tr && !tr.contains(e.relatedTarget)) tr.classList.remove('is-current');
+    });
+
+    table.addEventListener('paste', (e) => {
+      const input = e.target.closest('input[data-k]');
+      if (input) handlePaste(e, input);
     });
 
     table.addEventListener('click', (e) => {
-      const secBtn = e.target.closest('button[data-act="sec"]');
-      if (secBtn) {
-        const tr = secBtn.closest('tr[data-id]');
-        if (!tr) return;
+      const ph = e.target.closest('button.ph-btn');
+      if (ph) {
+        const f = findRow(ph.closest('tr[data-id]').dataset.id);
+        if (!f) return;
         snapshot();
-        const row = state.rows.find((r) => r.id === tr.dataset.id);
-        if (!row) return;
-        if (row.type === 'group') return;
-        row.section = row.section === 'output' ? 'input' : 'output';
-        /* move row to end of its section */
-        const i = state.rows.findIndex((r) => r.id === row.id);
-        if (i !== -1) {
-          state.rows.splice(i, 1);
-          let insertAt = state.rows.length;
-          for (let j = state.rows.length - 1; j >= 0; j -= 1) {
-            const r = state.rows[j];
-            if (r.type === 'row' && (r.section || 'input') === row.section) { insertAt = j + 1; break; }
-            // insert after last group row in that section
-          }
-          // if no same-section row found, place after first section divider position
-          state.rows.splice(insertAt, 0, row);
-        }
-        commit();
+        f.row.phantom = f.row.phantom === '1' ? '' : '1';
+        ph.classList.toggle('on', f.row.phantom === '1');
+        ph.setAttribute('aria-pressed', String(f.row.phantom === '1'));
+        ph.textContent = f.row.phantom === '1' ? '48V' : '';
+        save();
+        schedulePrint();
         return;
       }
-      const btn = e.target.closest('button[data-act="del"]');
-      if (!btn) return;
-      const tr = btn.closest('tr[data-id]');
-      if (!tr) return;
-      deleteRow(tr.dataset.id);
+      const menuBtn = e.target.closest('button[data-act="row-menu"]');
+      if (menuBtn) { openRowMenu(menuBtn); return; }
     });
 
     table.addEventListener('keydown', (e) => {
-      const input = e.target.closest('input[data-k]');
-      if (!input) return;
-      const tr = input.closest('tr[data-id]');
+      const el = e.target.closest('[data-k]');
+      if (!el) return;
+      const tr = el.closest('tr[data-id]');
       if (!tr) return;
       const id = tr.dataset.id;
-      const key = input.dataset.k;
+      const key = el.dataset.k;
+      const mod = e.metaKey || e.ctrlKey;
+      const composing = e.isComposing || e.keyCode === 229;
+      if (composing) return;
 
-      if (e.key === 'Enter' && !e.isComposing && !e.shiftKey && e.keyCode !== 229) {
+      /* ⌘/Ctrl + Enter … 下に行を挿入 */
+      if (mod && e.key === 'Enter') {
         e.preventDefault();
-        const index = state.rows.findIndex((r) => r.id === id);
-        const next = state.rows[index + 1];
-        if (next && next.type === 'row') focusCell(next.id, key);
-        else addRow(id, key);
+        addRow(sec, id, key === 'name' || tr.classList.contains('group-row') ? 'name' : key);
         return;
       }
-
+      /* ⌘/Ctrl + D … 行を複製 */
+      if (mod && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault();
+        duplicateRow(id, key);
+        return;
+      }
+      /* ⌘/Ctrl + Shift + Backspace / Delete … 行を削除 */
+      if (mod && e.shiftKey && (e.key === 'Backspace' || e.key === 'Delete')) {
+        e.preventDefault();
+        deleteRow(id, key);
+        return;
+      }
+      /* Alt + ↑↓ … 行を移動 */
       if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         e.preventDefault();
         moveRow(id, e.key === 'ArrowUp' ? -1 : 1, key);
+        return;
+      }
+      if (el.tagName !== 'INPUT') return;
+
+      /* Enter / Shift+Enter … 下 / 上の行へ（最終行なら行を追加） */
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) { moveFocusVert(el, -1); return; }
+        if (!moveFocusVert(el, 1)) addRow(sec, id, tr.classList.contains('group-row') ? 'name' : key);
+        return;
+      }
+      /* ↑↓ … 上下のセルへ（候補リスト付きの列は候補表示を優先） */
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !el.getAttribute('list') && !e.shiftKey && !mod) {
+        e.preventDefault();
+        moveFocusVert(el, e.key === 'ArrowUp' ? -1 : 1);
       }
     });
 
@@ -1205,24 +1559,31 @@
     });
   }
 
-  function bindGlobal() {
-    $('#btn-add-row').addEventListener('click', () => addRow(null, null, 'input'));
-    $('#btn-add-group').addEventListener('click', () => addGroup(null));
-    $('#btn-add-out-row').addEventListener('click', () => addRow(null, null, 'output'));
-    $('#btn-add-out-group').addEventListener('click', () => {
-      snapshot();
-      const group = { id: uid(), type: 'group', name: '' };
-      state.rows.push(group);
-      commit({ focus: '[data-id="' + group.id + '"] [data-k="name"]' });
+  function bindSections() {
+    $$('.sec-card').forEach((card) => {
+      const sec = card.dataset.sec;
+      card.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-sact]');
+        if (!btn) return;
+        const act = btn.dataset.sact;
+        if (act === 'add-row') addRow(sec, null);
+        else if (act === 'add-rows') addRows(sec, 8);
+        else if (act === 'add-group') addGroup(sec, null);
+        else if (act === 'renumber') renumber(sec);
+        else if (act === 'clear') clearSection(sec);
+      });
     });
-    $('#btn-renumber').addEventListener('click', renumber);
+  }
+
+  function bindGlobal() {
     $('#btn-preview').addEventListener('click', openPreview);
     $('#btn-pdf').addEventListener('click', printDoc);
     $('#btn-print').addEventListener('click', printDoc);
     $('#btn-close-preview').addEventListener('click', closePreview);
-
-    $('#preview').addEventListener('click', (e) => {
-      if (e.target === $('#preview')) closePreview();
+    $('#preview').addEventListener('click', (e) => { if (e.target === $('#preview')) closePreview(); });
+    $('#btn-shortcuts').addEventListener('click', () => $('#shortcuts').showModal());
+    $('#shortcuts').addEventListener('click', (e) => {
+      if (e.target === $('#shortcuts') || e.target.closest('[data-close]')) $('#shortcuts').close();
     });
 
     $$('[data-sample]').forEach((btn) => {
@@ -1237,13 +1598,25 @@
 
     document.addEventListener('keydown', (e) => {
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key.toLowerCase() === 'z' && !isTextField(document.activeElement)) {
+      const k = e.key.toLowerCase();
+      if (mod && (k === 'z' || k === 'y')) {
+        const ae = document.activeElement;
+        /* テキスト入力中でも、フォーカス後に未編集なら表全体の取り消しを行う */
+        const untouched = !isTextField(ae) || ae.value === focusValue;
+        if (!untouched) return;
         e.preventDefault();
-        if (e.shiftKey) redo(); else undo();
+        if (k === 'y' || e.shiftKey) redo(); else undo();
+        if (isTextField(ae)) focusValue = document.activeElement && document.activeElement.value;
+        return;
+      }
+      if (mod && k === 'p') {
+        e.preventDefault();
+        printDoc();
         return;
       }
       if (e.key === 'Escape') {
-        if ($('#preview').classList.contains('open')) closePreview();
+        if ($('#row-menu').classList.contains('open')) closeRowMenu();
+        else if ($('#preview').classList.contains('open')) closePreview();
         else closeMenu();
       }
     });
@@ -1253,13 +1626,8 @@
     });
 
     window.addEventListener('beforeprint', renderPrint);
-
-    window.addEventListener('beforeunload', (e) => {
-      if (saveTimer) {
-        clearTimeout(saveTimer);
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) { /* ignore */ }
-      }
-    });
+    window.addEventListener('beforeunload', () => { if (saveTimer) flushSave(); });
+    window.addEventListener('pagehide', () => { if (saveTimer) flushSave(); });
   }
 
   /* ---------------------------------------------------------
@@ -1270,7 +1638,9 @@
     buildColumnChips();
     bindMeta();
     bindSettings();
-    bindTable($('#edit-table'));
+    $$('.edit-table').forEach(bindTable);
+    bindSections();
+    bindRowMenu();
     bindMenu();
     bindGlobal();
 
@@ -1278,6 +1648,7 @@
     renderSettings();
     renderEditor();
     renderPrint();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(renderPrint);
   }
 
   if (document.readyState === 'loading') {

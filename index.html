@@ -45,6 +45,9 @@
             <button type="button" data-act="import-json" role="menuitem">JSONを読み込む</button>
             <button type="button" data-act="export-csv" role="menuitem">CSVで書き出す</button>
             <div class="menu-sep"></div>
+            <button type="button" data-act="preview-pick" role="menuitem">機材ピックリストをプレビュー</button>
+            <button type="button" data-act="print-pick" role="menuitem">機材ピックリストだけ印刷</button>
+            <div class="menu-sep"></div>
             <button type="button" data-act="shortcuts" role="menuitem">キーボードショートカット</button>
           </div>
         </div>
@@ -108,12 +111,24 @@
           </label>
         </div>
         <div class="setting-row">
+          <span class="setting-label">印刷する内容</span>
+          <div class="seg" data-setting="scope">
+            <button type="button" data-val="all">回線表＋ピックリスト</button>
+            <button type="button" data-val="lines">回線表のみ</button>
+            <button type="button" data-val="pick">ピックリストのみ</button>
+          </div>
+        </div>
+        <div class="setting-row">
           <span class="setting-label"><i class="sec-dot in"></i>INPUT の列</span>
           <div class="chips" id="column-chips-input"></div>
         </div>
         <div class="setting-row">
           <span class="setting-label"><i class="sec-dot out"></i>OUTPUT の列</span>
           <div class="chips" id="column-chips-output"></div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label"><i class="sec-dot gear"></i>ピックリストの列</span>
+          <div class="chips" id="column-chips-gear"></div>
         </div>
       </div>
     </details>
@@ -175,6 +190,44 @@
         <button class="btn btn-sm" type="button" data-sact="add-row">＋ 行</button>
         <button class="btn btn-sm" type="button" data-sact="add-rows">＋ 8 行</button>
         <button class="btn btn-sm" type="button" data-sact="add-group">＋ 見出し</button>
+      </footer>
+    </section>
+
+    <!-- ===== 機材ピックリスト ===== -->
+    <section class="card sec-card" data-sec="gear" aria-labelledby="sec-title-gear">
+      <header class="sec-head">
+        <div class="sec-title-wrap">
+          <span class="sec-tag gear">PICK</span>
+          <h2 class="sec-title" id="sec-title-gear">機材ピックリスト<span class="sec-ja">A4 別ページ・チェック欄つき</span></h2>
+          <span class="sec-count" data-count="gear"></span>
+        </div>
+        <div class="sec-tools">
+          <button class="btn btn-sm btn-ghost" type="button" data-sact="from-lines" title="INPUT / OUTPUT のマイク・スタンド・ケーブル・BOX を集計して作成">回線表から作成</button>
+          <button class="btn btn-sm btn-ghost" type="button" data-sact="renumber" title="No. を 1 から振り直す">No. 振り直し</button>
+          <button class="btn btn-sm btn-ghost btn-danger-text" type="button" data-sact="clear" title="ピックリストを空にする">空にする</button>
+        </div>
+      </header>
+      <div class="pick-options">
+        <label class="field">
+          <span>チェック欄（工程）— カンマ区切り・最大 6 つ</span>
+          <input id="pick-phases" type="text" placeholder="出庫, 搬入, バラシ, 帰庫" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>注意事項（ピックリストの下に印刷）</span>
+          <input id="pick-note" type="text" placeholder="例: ケーブルは長さ別に束ねて帰庫" autocomplete="off">
+        </label>
+      </div>
+      <div class="table-scroll">
+        <table class="edit-table" data-sec="gear"></table>
+      </div>
+      <div class="sec-empty">機材はまだありません。「回線表から作成」でマイク・スタンド・ケーブルを自動で集計するか、下のボタンで追加してください。</div>
+      <footer class="sec-foot">
+        <button class="btn btn-sm" type="button" data-sact="add-row">＋ 行</button>
+        <button class="btn btn-sm" type="button" data-sact="add-rows">＋ 8 行</button>
+        <button class="btn btn-sm" type="button" data-sact="add-group">＋ 見出し</button>
+        <span class="foot-spacer"></span>
+        <button class="btn btn-sm" type="button" data-sact="preview-pick">ピックリストをプレビュー</button>
+        <button class="btn btn-sm btn-primary" type="button" data-sact="print-pick">ピックリストを印刷</button>
       </footer>
     </section>
 
@@ -280,6 +333,14 @@
     <option value="SPK"></option>
     <option value="Multi"></option>
     <option value="—"></option>
+  </datalist>
+  <datalist id="case-list">
+    <option value="マイクケース"></option>
+    <option value="ケーブルケース"></option>
+    <option value="スタンドケース"></option>
+    <option value="卓ケース"></option>
+    <option value="小物ケース"></option>
+    <option value="ラック"></option>
   </datalist>
   <datalist id="out-list">
     <option value="MAIN L"></option>

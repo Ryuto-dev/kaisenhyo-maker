@@ -272,6 +272,7 @@ button { font-family: inherit; }
 .setting-label-inline { width: auto; margin-left: 10px; }
 .sec-dot { width: 8px; height: 8px; border-radius: 2px; background: var(--accent); display: inline-block; }
 .sec-dot.out { background: #c2620a; }
+.sec-dot.gear { background: #1f8a5b; }
 .check { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; font-size: 12px; font-weight: 600; color: #4a525e; cursor: pointer; user-select: none; }
 .check input { margin: 0; accent-color: var(--accent); }
 
@@ -319,6 +320,22 @@ button { font-family: inherit; }
   --sec: #c2620a;
   --sec-weak: #fff3e6;
 }
+.sec-card[data-sec="gear"] {
+  --sec: #1f8a5b;
+  --sec-weak: #e7f6ee;
+}
+
+/* ピックリストのオプション（チェック欄・注意事項） */
+.pick-options {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 10px 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: #fafbfc;
+}
+.sec-card.is-empty .pick-options { border-bottom: 0; }
+.foot-spacer { flex: 1 1 auto; }
 
 .sec-head {
   display: flex;
@@ -854,6 +871,111 @@ kbd {
 .doc-table td.ph { font-size: .82em; font-weight: 700; letter-spacing: .02em; }
 .doc-empty { padding: 10mm 0; text-align: center; color: #777; border: .5pt dashed #b9bdc2; }
 
+/* ---------- 機材ピックリスト（A4 別ページ） ---------- */
+
+.dh-kind {
+  margin-left: 3mm;
+  padding: .3mm 2mm;
+  border: 1pt solid #111;
+  border-radius: 1mm;
+  font-size: .5em;
+  font-weight: 700;
+  letter-spacing: .12em;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* 工程ごとのサイン欄 */
+.pick-sign {
+  display: grid;
+  gap: 2mm;
+  margin: -1mm 0 3mm;
+}
+.ps-box {
+  border: .5pt solid #8d939a;
+  padding: 1.2mm 1.8mm 1.6mm;
+  min-width: 0;
+}
+.ps-name {
+  margin-bottom: .8mm;
+  font-weight: 700;
+  font-size: .95em;
+  letter-spacing: .12em;
+}
+.ps-line {
+  display: flex;
+  align-items: flex-end;
+  gap: 1.2mm;
+  height: 5.2mm;
+  font-size: .78em;
+  color: #555;
+}
+.ps-line b { flex: 0 0 auto; font-weight: 600; }
+.ps-line span { flex: 1 1 auto; border-bottom: .5pt solid #b9bdc2; height: 100%; }
+
+.pick-legend {
+  margin-bottom: 1.2mm;
+  font-size: .78em;
+  color: #555;
+}
+
+.pick-table td { padding-top: 1.7mm; padding-bottom: 1.7mm; }
+.pick-table td.tot { font-weight: 700; }
+.pick-table th.ck-h {
+  padding-left: .5mm;
+  padding-right: .5mm;
+  font-size: .82em;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+/* 手書きでチェックを入れる欄 */
+.pick-table td.ck {
+  position: relative;
+  padding: 0;
+  height: 6.2mm;
+  background: #fff;
+}
+.pick-table td.ck::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3.4mm;
+  height: 3.4mm;
+  transform: translate(-50%, -50%);
+  border: .7pt solid #5f656c;
+  border-radius: .5mm;
+}
+.pick-table td.ck .ck-of {
+  position: absolute;
+  right: .6mm;
+  bottom: .3mm;
+  font-size: .68em;
+  color: #9aa0a7;
+  line-height: 1;
+}
+.pick-table td.ck:has(.ck-of)::before { left: 38%; }
+.pick-table tbody tr:nth-child(even):not(.g) td:not(.ck) { background: #f8f9fa; }
+
+.pick-foot { margin-top: 3mm; }
+.pick-note {
+  margin-bottom: 2mm;
+  padding: 1.6mm 2mm;
+  border-left: 1.2pt solid #111;
+  background: #f3f4f6;
+  font-size: .92em;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.pick-memo {
+  border: .5pt solid #8d939a;
+  padding: 1.4mm 2mm 2mm;
+}
+.pm-title { font-size: .82em; font-weight: 700; letter-spacing: .1em; color: #333; }
+.pm-lines { display: flex; flex-direction: column; }
+.pm-lines span { height: 6.4mm; border-bottom: .5pt dashed #b9bdc2; }
+
 /* ---------- footer ---------- */
 
 .app-footer {
@@ -889,6 +1011,7 @@ kbd {
 @media (max-width: 860px) {
   .meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .field.span2 { grid-column: span 2; }
+  .pick-options { grid-template-columns: minmax(0, 1fr); }
   .save-state { display: none; }
   .page-count { display: none; }
   .setting-label-inline, .check { margin-left: 0; }

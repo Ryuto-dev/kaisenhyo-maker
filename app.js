@@ -13,7 +13,11 @@
 
   const STORAGE_KEY = 'kaisenhyo-maker/v1';
   const HISTORY_LIMIT = 100;
-  const SECS = ['input', 'output'];
+  const SECS = ['input', 'output'];           // 回線表（印刷: 回線表）
+  const EDIT_SECS = ['input', 'output', 'gear']; // 編集画面のセクション（gear = 機材ピックリスト）
+  const DEFAULT_PHASES = ['出庫', '搬入', 'バラシ', '帰庫'];
+  const MAX_PHASES = 6;
+  const SCOPES = ['all', 'lines', 'pick'];
 
   /*
     w   … 編集画面の列幅
@@ -44,11 +48,21 @@
       { key: 'length',  label: '長さ',        align: 'c', w: '56px', pw: '12mm', num: true },
       { key: 'note',    label: '備考',        align: '',  w: 'auto', pw: 'auto' },
     ],
+    gear: [
+      { key: 'no',      label: 'No.',        align: 'c', w: '50px', pw: '8mm',  fixed: true, num: true },
+      { key: 'name',    label: '品名',        align: '',  w: '26%',  pw: 'auto', fixed: true, ph: '例: SM58' },
+      { key: 'model',   label: '型番 / 仕様',  align: '',  w: '18%',  pw: '27mm' },
+      { key: 'qty',     label: '数量',        align: 'c', w: '64px', pw: '10mm', num: true },
+      { key: 'spare',   label: '予備',        align: 'c', w: '60px', pw: '9mm',  num: true },
+      { key: 'case',    label: 'ケース',      align: '',  w: '120px', pw: '18mm', list: 'case-list' },
+      { key: 'note',    label: '備考',        align: '',  w: 'auto', pw: '24mm' },
+    ],
   };
 
   const SEC_INFO = {
     input:  { label: 'INPUT',  ja: '入力', unit: 'ch' },
     output: { label: 'OUTPUT', ja: '出力', unit: '系統' },
+    gear:   { label: 'PICK LIST', ja: '機材', unit: '品目' },
   };
 
   const DEFAULT_HIDDEN = ['input:stand'];
@@ -131,7 +145,17 @@
       hidden: DEFAULT_HIDDEN.slice(),
       input: [],
       output: [],
+      gear: [],
+      pickPhases: DEFAULT_PHASES.slice(),
+      pickNote: '',
+      printScope: 'all',
     };
+  }
+
+  /* 「出庫, 搬入, バラシ」→ ['出庫', '搬入', 'バラシ'] */
+  function parsePhases(value) {
+    const list = Array.isArray(value) ? value : String(value == null ? '' : value).split(/[,、，\n]/);
+    return list.map((p) => String(p).trim().slice(0, 10)).filter(Boolean).slice(0, MAX_PHASES);
   }
 
   function cleanId(raw) {
@@ -185,6 +209,10 @@
     if (raw.paper === 'landscape') s.paper = 'landscape';
     if (['compact', 'normal', 'large'].indexOf(raw.density) !== -1) s.density = raw.density;
     s.outputBreak = !!raw.outputBreak;
+    if (Array.isArray(raw.gear)) s.gear = raw.gear.map((r) => cleanRow('gear', r));
+    if (Array.isArray(raw.pickPhases)) s.pickPhases = parsePhases(raw.pickPhases);
+    if (raw.pickNote != null) s.pickNote = String(raw.pickNote);
+    if (SCOPES.indexOf(raw.printScope) !== -1) s.printScope = raw.printScope;
 
     if (Array.isArray(raw.input) || Array.isArray(raw.output)) {
       SECS.forEach((sec) => {
@@ -228,7 +256,32 @@
   }
 
   function totalRows() {
-    return state.input.length + state.output.length;
+    return state.input.length + state.output.length + state.gear.length;
+  }
+
+  /* "6" / "6本" / "x6" → 6 */
+  function numVal(v) {
+    const m = /\d+/.exec(String(v == null ? '' : v));
+    return m ? Number(m[0]) : 0;
+  }
+
+  /* 持ち出す総数（数量 + 予備） */
+  function gearRowTotal(r) {
+    return numVal(r.qty) + numVal(r.spare);
+  }
+
+  function gearTotal() {
+    return state.gear.reduce((sum, r) => (r.type === 'group' ? sum : sum + gearRowTotal(r)), 0);
+  }
+
+  function secCountText(sec) {
+    const n = dataCount(sec);
+    if (!n) return '';
+    if (sec === 'gear') {
+      const t = gearTotal();
+      return n + ' 品目' + (t ? ' · 計 ' + t : '');
+    }
+    return n + ' ' + SEC_INFO[sec].unit;
   }
 
   function blankRow(sec) {
@@ -246,12 +299,93 @@
   }
 
   function findRow(id) {
-    for (let s = 0; s < SECS.length; s += 1) {
-      const list = state[SECS[s]];
+    for (let s = 0; s < EDIT_SECS.length; s += 1) {
+      const list = state[EDIT_SECS[s]];
       const i = list.findIndex((r) => r.id === id);
-      if (i !== -1) return { sec: SECS[s], list: list, index: i, row: list[i] };
+      if (i !== -1) return { sec: EDIT_SECS[s], list: list, index: i, row: list[i] };
     }
     return null;
+  }
+
+  /* ---------------------------------------------------------
+     機材ピックリスト — 回線表からの集計
+     マイク・機器（「+」区切りで分割）/ スタンド / ケーブル（種類×長さ）/ BOX を拾い出す
+     --------------------------------------------------------- */
+
+  const GEAR_GROUPS = ['卓・BOX', 'マイク', 'ワイヤレス', 'DI', '機器・その他', 'スタンド', 'ケーブル'];
+  const KIND_GROUP = { mic: 'マイク', tb: 'マイク', wl: 'ワイヤレス', di: 'DI' };
+  const STAND_NAMES = {
+    'トール': 'ブームスタンド（トール）',
+    'ショート': 'ブームスタンド（ショート）',
+    'ストレート': 'ストレートスタンド',
+    '卓上': '卓上スタンド',
+    'クリップ': 'ドラムクリップ',
+  };
+  const CABLE_ORDER = ['XLR', 'TRS', 'TS', 'RCA', 'SPK', 'MULTI'];
+
+  function aggregateGear(doc) {
+    const buckets = {};
+    GEAR_GROUPS.forEach((g) => { buckets[g] = []; });
+
+    function add(group, name, model, sort) {
+      const list = buckets[group];
+      let e = list.find((x) => x.name === name && x.model === model);
+      if (!e) { e = { name: name, model: model, qty: 0, sort: sort }; list.push(e); }
+      e.qty += 1;
+    }
+
+    doc.input.forEach((r) => {
+      if (r.type === 'group') return;
+      const group = KIND_GROUP[String(r.kind || '').trim().toLowerCase()] || '機器・その他';
+      if (!isBlankMark(r.source)) {
+        String(r.source).split(/\s*\+\s*/).forEach((item) => {
+          const it = item.trim();
+          if (it && !isBlankMark(it)) add(group, it, '');
+        });
+      }
+      const stand = String(r.stand || '').trim();
+      if (stand && !isBlankMark(stand) && stand !== 'なし') add('スタンド', STAND_NAMES[stand] || stand + ' スタンド', '');
+    });
+
+    const boxes = [];
+    SECS.forEach((sec) => {
+      doc[sec].forEach((r) => {
+        if (r.type === 'group') return;
+        const cable = String(r.cable || '').trim();
+        if (cable && !isBlankMark(cable)) {
+          const len = isBlankMark(r.length) ? '' : String(r.length).trim();
+          const ci = CABLE_ORDER.indexOf(cable.toUpperCase());
+          add('ケーブル', cable + ' ケーブル', len, [ci === -1 ? 99 : ci, cable, parseFloat(len) || 0]);
+        }
+        const m = /^([A-Za-z]+\d+)-/.exec(String(r.box || '').trim());
+        if (m && boxes.indexOf(m[1].toUpperCase()) === -1) boxes.push(m[1].toUpperCase());
+      });
+    });
+    boxes.forEach((b) => add('卓・BOX', 'ステージボックス', b));
+
+    buckets['ケーブル'].sort((a, b) => (a.sort[0] - b.sort[0]) ||
+      (a.sort[1] < b.sort[1] ? -1 : a.sort[1] > b.sort[1] ? 1 : 0) || (a.sort[2] - b.sort[2]));
+
+    const rows = [];
+    let n = 1;
+    GEAR_GROUPS.forEach((g) => {
+      if (!buckets[g].length) return;
+      rows.push({ id: uid(), type: 'group', name: g });
+      buckets[g].forEach((e) => {
+        rows.push(cleanRow('gear', { no: String(n), name: e.name, model: e.model, qty: String(e.qty) }));
+        n += 1;
+      });
+    });
+    return rows;
+  }
+
+  function renumberList(list) {
+    let n = 1;
+    list.forEach((row) => {
+      if (row.type === 'group') return;
+      row.no = String(n);
+      n += 1;
+    });
   }
 
   /* ---------------------------------------------------------
@@ -330,6 +464,27 @@
     ['4', '配信送り', 'MTX1',   '配信卓',        '—', 'XLR', '10m', '-10dB'],
   ];
 
+  /* gear: no, name, model, qty, spare, case, note */
+  const SAMPLE_BAND_GEAR_EXTRA = [
+    '卓・周辺',
+    ['', 'デジタルミキサー',   '',       '1', '',  '卓ケース',   ''],
+    ['', 'ヘッドフォン',       '',       '1', '1', '卓ケース',   ''],
+    '電源・小物',
+    ['', '電源ドラム',         '30m',    '2', '',  '',           ''],
+    ['', 'テーブルタップ',     '6口',    '6', '2', '小物ケース', ''],
+    ['', '単3 電池',           '',       '12', '12', '小物ケース', 'ワイヤレス用'],
+    ['', 'パーマセル（黒）',   '',       '2', '',  '小物ケース', ''],
+  ];
+
+  const SAMPLE_TALK_GEAR_EXTRA = [
+    '卓・周辺',
+    ['', 'アナログミキサー',   '12ch',   '1', '',  '卓ケース',   ''],
+    '電源・小物',
+    ['', '電源ドラム',         '30m',    '1', '',  '',           ''],
+    ['', '単3 電池',           '',       '8', '8', '小物ケース', 'ワイヤレス用'],
+    ['', 'マイクホルダー',     '',       '2', '1', '小物ケース', ''],
+  ];
+
   function sampleDoc(kind) {
     const s = emptyState();
     s.meta.date = todayISO();
@@ -339,13 +494,17 @@
       s.meta.note = 'マイクは SM58 × 6、SM57 × 3 を用意。\n16:00 仕込み / 17:00 サウンドチェック。';
       s.input = rowsFrom('input', SAMPLE_BAND_IN);
       s.output = rowsFrom('output', SAMPLE_BAND_OUT);
+      s.gear = aggregateGear(s).concat(rowsFrom('gear', SAMPLE_BAND_GEAR_EXTRA));
+      s.pickNote = '帰庫時はケーブルを8の字巻きでまとめ、長さ別に仕分けること。';
     } else {
       s.meta.title = '講演 音響回線表';
       s.meta.venue = '○○ホール';
       s.meta.note = '受付でワイヤレスの電池残量を確認。発表者PCの音声は会場で実測。';
       s.input = rowsFrom('input', SAMPLE_TALK_IN);
       s.output = rowsFrom('output', SAMPLE_TALK_OUT);
+      s.gear = aggregateGear(s).concat(rowsFrom('gear', SAMPLE_TALK_GEAR_EXTRA));
     }
+    renumberList(s.gear);
     return s;
   }
 
@@ -528,9 +687,7 @@
     const table = $('.edit-table[data-sec="' + sec + '"]', card);
     const list = state[sec];
     const cols = visibleCols(sec);
-    const n = dataCount(sec);
-
-    $('[data-count="' + sec + '"]').textContent = n ? n + ' ' + SEC_INFO[sec].unit : '';
+    $('[data-count="' + sec + '"]').textContent = secCountText(sec);
     card.classList.toggle('is-empty', !list.length);
 
     const colgroup = '<colgroup><col class="c-grip">' +
@@ -564,7 +721,7 @@
     $('#empty-state').hidden = !empty;
     $$('.sec-card').forEach((card) => { card.hidden = empty; });
     if (empty) return;
-    SECS.forEach(renderSection);
+    EDIT_SECS.forEach(renderSection);
   }
 
   /* ---------------------------------------------------------
@@ -634,21 +791,14 @@
       '</tr></thead><tbody>';
   }
 
-  function renderPrint() {
-    const pagesEl = $('#sheet-pages');
-    const measure = $('#measure-sheet');
-    if (!pagesEl || !measure) return;
+  /* ---------- 回線表（INPUT / OUTPUT） ---------- */
 
+  function buildLinesDoc(measure, ctx) {
     const meta = state.meta;
     const title = (meta.title || '').trim() || '音響回線表';
-    const paper = state.paper;
-    const pageW = paper === 'landscape' ? 297 : 210;
-    const pageH = paper === 'landscape' ? 210 : 297;
-
     const head = headHTML(title, meta);
     const run = '<div class="page-run"><span>' + esc(title) + '</span><span>' + esc(meta.rev) + '</span></div>';
     const note = meta.note && meta.note.trim() ? '<div class="doc-note">' + esc(meta.note) + '</div>' : '';
-
     const secs = SECS.filter((s) => state[s].length);
 
     /* ---- pass 1: measure ---- */
@@ -659,16 +809,11 @@
         state[sec].map((r) => rowHTML(r, cols)).join('') + '</tbody></table></div>';
     });
     mh += note;
-
-    measure.dataset.paper = paper;
-    measure.dataset.density = state.density;
-    measure.style.width = pageW + 'mm';
     measure.innerHTML = mh;
 
-    const px = (el) => (el ? el.getBoundingClientRect().height : 0);
-    /* 計測できない状態（非表示など）では、直前のページ割りを維持する */
-    if (!px($('.doc-head', measure)) && pagesEl.children.length) return;
-    const headH = px($('.doc-head', measure)) + 3 * MM;      // + margin-bottom
+    const px = ctx.px;
+    if (!px($('.doc-head', measure))) return null;
+    const headH = px($('.doc-head', measure)) + 3 * MM;
     const runH = px($('.page-run', measure)) + 2 * MM;
     const noteEl = $('.doc-note', measure);
     const noteH = noteEl ? px(noteEl) + 3 * MM : 0;
@@ -686,15 +831,13 @@
     });
 
     /* ---- pass 2: paginate ---- */
-    const contentH = (pageH - 24) * MM - 1.5 * MM; // padding 12mm × 2 + safety
     const pages = [];
     let page = null;
     let avail = 0;
-
     function newPage() {
       page = { first: !pages.length, blocks: [], note: false };
       pages.push(page);
-      avail = contentH - (page.first ? headH : runH);
+      avail = ctx.contentH - (page.first ? headH : runH);
     }
     newPage();
 
@@ -702,7 +845,6 @@
       const m = secMeta[sec];
       const list = state[sec];
       if (si > 0 && sec === 'output' && state.outputBreak && page.blocks.length) newPage();
-
       let block = null;
       let i = 0;
       while (i < list.length) {
@@ -711,7 +853,6 @@
         /* 見出し行が単独でページ末尾に残らないよう、次の行ぶんも確保する */
         const need = h + (isGroup && i + 1 < list.length ? (m.rowH[i + 1] || 0) : 0);
         const overhead = block ? 0 : m.labelH + m.theadH;
-
         if (overhead + need > avail && (block || page.blocks.length)) {
           newPage();
           block = null;
@@ -733,29 +874,213 @@
       page.note = true;
     }
 
-    /* ---- pass 3: render ---- */
-    const total = pages.length;
-    pagesEl.innerHTML = pages.map((p, pi) => {
+    /* ---- pass 3: html ---- */
+    return pages.map((p) => {
       let inner = p.first ? head : run;
-      if (!secs.length && p.first) {
-        inner += '<div class="doc-empty">（回線がまだありません）</div>';
-      }
+      if (!secs.length && p.first) inner += '<div class="doc-empty">（回線がまだありません）</div>';
       p.blocks.forEach((b) => {
         const cols = visibleCols(b.sec);
         inner += secLabelHTML(b.sec, b.cont) + tableOpen(cols) +
           b.rows.map((r) => rowHTML(r, cols)).join('') + '</tbody></table>';
       });
       if (p.note) inner += note;
-      inner += '<div class="page-num">' + (pi + 1) + ' / ' + total + '</div>';
-      return '<section class="print-sheet sheet-page" data-paper="' + paper + '" data-density="' + state.density + '">' + inner + '</section>';
+      return { kind: 'lines', html: inner };
+    });
+  }
+
+  /* ---------- 機材ピックリスト ---------- */
+
+  function pickCols() {
+    const cols = visibleCols('gear').slice();
+    const si = cols.findIndex((c) => c.key === 'spare');
+    if (si !== -1) cols.splice(si + 1, 0, { key: '_total', label: '計', align: 'c', pw: '9mm', total: true });
+    return cols;
+  }
+
+  function pickCheckWidth() {
+    const n = state.pickPhases.length;
+    if (state.paper === 'landscape') return n > 4 ? '15mm' : '18mm';
+    return n > 4 ? '9.5mm' : '11.5mm';
+  }
+
+  function pickTableOpen(cols) {
+    const phases = state.pickPhases;
+    const cw = pickCheckWidth();
+    return '<table class="doc-table pick-table"><colgroup>' +
+      cols.map((c) => '<col style="width:' + c.pw + '">').join('') +
+      phases.map(() => '<col style="width:' + cw + '">').join('') +
+      '</colgroup><thead><tr>' +
+      cols.map((c) => '<th class="' + (c.align || '') + '">' + esc(c.label) + '</th>').join('') +
+      phases.map((p) => '<th class="c ck-h">' + esc(p) + '</th>').join('') +
+      '</tr></thead><tbody>';
+  }
+
+  function pickRowHTML(row, cols) {
+    const phases = state.pickPhases;
+    if (row.type === 'group') {
+      return '<tr class="g"><td colspan="' + (cols.length + phases.length) + '">' + (esc(row.name) || '&nbsp;') + '</td></tr>';
+    }
+    const total = gearRowTotal(row);
+    const cells = cols.map((c) => {
+      if (c.total) return '<td class="c tot">' + (total || '') + '</td>';
+      const cls = (c.align || '') + (c.key === 'name' ? ' nm' : '');
+      return '<td class="' + cls.trim() + '">' + esc(row[c.key]) + '</td>';
     }).join('');
+    /* 数量が 2 以上なら「／6」を薄く入れ、数えた数を書き込めるようにする */
+    const hint = total > 1 ? '<span class="ck-of">/' + total + '</span>' : '';
+    return '<tr>' + cells + phases.map(() => '<td class="ck">' + hint + '</td>').join('') + '</tr>';
+  }
+
+  function pickHeadHTML(title, meta) {
+    const metaParts = [];
+    if (meta.venue) metaParts.push('<span><b>会場</b>' + esc(meta.venue) + '</span>');
+    if (meta.date) metaParts.push('<span><b>日付</b>' + esc(formatDate(meta.date)) + '</span>');
+    if (meta.author) metaParts.push('<span><b>作成</b>' + esc(meta.author) + '</span>');
+    const n = dataCount('gear');
+    if (n) {
+      const t = gearTotal();
+      metaParts.push('<span><b>品目</b>' + n + (t ? ' / 総数 ' + t : '') + '</span>');
+    }
+    let html = '<header class="doc-head">';
+    html += '<div class="dh-top"><span class="dh-label">EQUIPMENT PICK LIST</span>' +
+      '<span class="dh-rev">' + esc(meta.rev) + '</span></div>';
+    html += '<h1 class="dh-title">' + esc(title) + '<span class="dh-kind">機材ピックリスト</span></h1>';
+    if (metaParts.length) html += '<div class="dh-meta">' + metaParts.join('') + '</div>';
+    html += '</header>';
+    return html;
+  }
+
+  /* 工程ごとのサイン欄（担当 / 日時 / 確認） */
+  function pickSignHTML() {
+    const phases = state.pickPhases;
+    if (!phases.length) return '';
+    return '<div class="pick-sign" style="grid-template-columns:repeat(' + phases.length + ',minmax(0,1fr))">' +
+      phases.map((p) => '<div class="ps-box"><div class="ps-name">' + esc(p) + '</div>' +
+        '<div class="ps-line"><b>日時</b><span></span></div>' +
+        '<div class="ps-line"><b>担当</b><span></span></div>' +
+        '<div class="ps-line"><b>確認</b><span></span></div></div>').join('') +
+      '</div>';
+  }
+
+  function pickFootHTML() {
+    const note = state.pickNote && state.pickNote.trim() ? '<div class="pick-note">' + esc(state.pickNote) + '</div>' : '';
+    return '<div class="pick-foot">' + note +
+      '<div class="pick-memo"><div class="pm-title">不足・破損・追加メモ</div>' +
+      '<div class="pm-lines"><span></span><span></span><span></span><span></span></div></div></div>';
+  }
+
+  function buildPickDoc(measure, ctx) {
+    const meta = state.meta;
+    const base = (meta.title || '').trim() || '音響回線表';
+    const head = pickHeadHTML(base, meta) + pickSignHTML();
+    const run = '<div class="page-run"><span>' + esc(base) + ' — 機材ピックリスト</span><span>' + esc(meta.rev) + '</span></div>';
+    const legend = '<div class="pick-legend">チェック欄には ✓ または数えた数を記入（「/6」は持ち出し総数）。不足・破損は下のメモ欄へ。</div>';
+    const foot = pickFootHTML();
+    const cols = pickCols();
+    const list = state.gear;
+
+    measure.innerHTML = '<div class="m-head">' + head + '</div>' + run + legend +
+      pickTableOpen(cols) + list.map((r) => pickRowHTML(r, cols)).join('') + '</tbody></table>' + foot;
+
+    const px = ctx.px;
+    const mHead = $('.m-head', measure);
+    if (!px(mHead)) return null;
+    const headH = px(mHead) + 3 * MM;
+    const runH = px($('.page-run', measure)) + 2 * MM;
+    const legendH = px($('.pick-legend', measure)) + 1.2 * MM;
+    const theadH = px($('.pick-table thead', measure));
+    const rowH = $$('.pick-table tbody tr', measure).map(px);
+    const footH = px($('.pick-foot', measure)) + 3 * MM;
+
+    const pages = [];
+    let page = null;
+    let avail = 0;
+    function newPage() {
+      page = { first: !pages.length, rows: [], foot: false };
+      pages.push(page);
+      avail = ctx.contentH - (page.first ? headH + legendH : runH) - theadH;
+    }
+    newPage();
+    let i = 0;
+    while (i < list.length) {
+      const h = rowH[i] || 0;
+      const need = h + (list[i].type === 'group' && i + 1 < list.length ? (rowH[i + 1] || 0) : 0);
+      if (need > avail && page.rows.length) { newPage(); continue; }
+      page.rows.push(list[i]);
+      avail -= h;
+      i += 1;
+    }
+    if (footH > avail && page.rows.length) newPage();
+    page.foot = true;
+
+    return pages.map((p) => {
+      let inner = p.first ? head + legend : run;
+      if (p.rows.length) {
+        inner += pickTableOpen(cols) + p.rows.map((r) => pickRowHTML(r, cols)).join('') + '</tbody></table>';
+      } else if (p.first) {
+        inner += '<div class="doc-empty">（機材がまだありません）</div>';
+      }
+      if (p.foot) inner += foot;
+      return { kind: 'pick', html: inner };
+    });
+  }
+
+  function currentScope() {
+    return printOverride || state.printScope;
+  }
+
+  function renderPrint() {
+    const pagesEl = $('#sheet-pages');
+    const measure = $('#measure-sheet');
+    if (!pagesEl || !measure) return;
+
+    const paper = state.paper;
+    const pageW = paper === 'landscape' ? 297 : 210;
+    const pageH = paper === 'landscape' ? 210 : 297;
+    const scope = currentScope();
+    const hasLines = SECS.some((s) => state[s].length);
+    const hasGear = state.gear.length > 0;
+
+    const docs = [];
+    if (scope === 'lines' || (scope === 'all' && (hasLines || !hasGear))) docs.push('lines');
+    if (scope === 'pick' || (scope === 'all' && hasGear)) docs.push('pick');
+
+    measure.dataset.paper = paper;
+    measure.dataset.density = state.density;
+    measure.style.width = pageW + 'mm';
+
+    const ctx = {
+      px: (el) => (el ? el.getBoundingClientRect().height : 0),
+      contentH: (pageH - 24) * MM - 1.5 * MM, // padding 12mm × 2 + safety
+    };
+
+    const sets = [];
+    for (let d = 0; d < docs.length; d += 1) {
+      const pages = docs[d] === 'pick' ? buildPickDoc(measure, ctx) : buildLinesDoc(measure, ctx);
+      /* 計測できない状態（非表示など）では、直前のページ割りを維持する */
+      if (!pages) { if (pagesEl.children.length) return; continue; }
+      sets.push(pages);
+    }
+
+    const all = [];
+    sets.forEach((pages) => {
+      pages.forEach((p, pi) => {
+        const label = p.kind === 'pick' ? 'PICK LIST ' : '';
+        all.push('<section class="print-sheet sheet-page' + (p.kind === 'pick' ? ' pick-page' : '') +
+          '" data-paper="' + paper + '" data-density="' + state.density + '">' + p.html +
+          '<div class="page-num">' + label + (pi + 1) + ' / ' + pages.length + '</div></section>');
+      });
+    });
+    pagesEl.innerHTML = all.join('');
 
     applyPageStyle();
 
+    const total = all.length;
+    const paperLabel = 'A4 ' + (paper === 'landscape' ? '横' : '縦');
     const tag = $('#preview-tag');
-    if (tag) tag.textContent = 'A4 ' + (paper === 'landscape' ? '横' : '縦') + ' / ' + total + 'ページ';
+    if (tag) tag.textContent = SCOPE_LABEL[scope] + ' / ' + paperLabel + ' / ' + total + 'ページ';
     const pc = $('#page-count');
-    if (pc) pc.textContent = 'A4 ' + (paper === 'landscape' ? '横' : '縦') + ' · ' + total + 'ページ';
+    if (pc && !printOverride) pc.textContent = paperLabel + ' · ' + total + 'ページ';
 
     if ($('#preview').classList.contains('open')) fitPreview();
   }
@@ -771,6 +1096,7 @@
   }
 
   let printTimer = null;
+  let printOverride = null; // プレビュー / 印刷時だけ一時的に印刷範囲を切り替える
   function schedulePrint() {
     clearTimeout(printTimer);
     printTimer = setTimeout(renderPrint, 200);
@@ -780,9 +1106,12 @@
      rendering — settings + meta
      --------------------------------------------------------- */
 
+  const SCOPE_LABEL = { all: '回線表＋ピックリスト', lines: '回線表のみ', pick: 'ピックリストのみ' };
+
   function renderSettings() {
     $$('.seg').forEach((seg) => {
-      const value = seg.dataset.setting === 'paper' ? state.paper : state.density;
+      const key = seg.dataset.setting;
+      const value = key === 'paper' ? state.paper : key === 'scope' ? state.printScope : state.density;
       $$('button', seg).forEach((btn) => btn.classList.toggle('on', btn.dataset.val === value));
     });
 
@@ -797,7 +1126,8 @@
     if (note) {
       const paper = state.paper === 'landscape' ? '横' : '縦';
       const size = { compact: '小', normal: '中', large: '大' }[state.density] || '中';
-      note.textContent = 'A4 ' + paper + ' / 文字 ' + size + (state.outputBreak ? ' / OUTPUT 改ページ' : '');
+      note.textContent = 'A4 ' + paper + ' / 文字 ' + size + (state.outputBreak ? ' / OUTPUT 改ページ' : '') +
+        ' / ' + SCOPE_LABEL[state.printScope];
     }
 
     applyPageStyle();
@@ -805,10 +1135,14 @@
 
   function syncMeta() {
     $$('[data-meta]').forEach((el) => { el.value = state.meta[el.dataset.meta] || ''; });
+    const ph = $('#pick-phases');
+    if (ph) ph.value = state.pickPhases.join(', ');
+    const pn = $('#pick-note');
+    if (pn) pn.value = state.pickNote;
   }
 
   function buildColumnChips() {
-    SECS.forEach((sec) => {
+    EDIT_SECS.forEach((sec) => {
       const box = $('#column-chips-' + sec);
       box.innerHTML = COLS[sec].filter((c) => !c.fixed).map((c) => {
         const id = sec + ':' + c.key;
@@ -885,6 +1219,10 @@
   function smartRow(sec, ref) {
     const row = blankRow(sec);
     row.no = String(maxNo(sec) + 1);
+    if (sec === 'gear') {
+      if (ref) row.case = ref.case;
+      return row;
+    }
     if (!ref) {
       if (sec === 'input') row.console = row.no;
       return row;
@@ -949,6 +1287,8 @@
     const copy = Object.assign({}, f.row, { id: uid() });
     if (copy.type !== 'group') {
       copy.no = String(maxNo(f.sec) + 1);
+    }
+    if (copy.type !== 'group' && f.sec !== 'gear') {
       copy.console = incr(f.row.console) || f.row.console;
       copy.box = incr(f.row.box) || f.row.box;
     }
@@ -1217,8 +1557,10 @@
     stage.style.height = Math.round(height * scale) + 'px';
   }
 
-  function openPreview() {
+  /* scope: 'pick' などを渡すと、そのプレビュー / 印刷のあいだだけ印刷範囲を切り替える */
+  function openPreview(scope) {
     closeMenu();
+    printOverride = typeof scope === 'string' ? scope : null;
     renderPrint();
     $('#preview').classList.add('open');
     document.body.classList.add('no-scroll');
@@ -1232,18 +1574,33 @@
     if (!modal.classList.contains('open')) return;
     modal.classList.remove('open');
     document.body.classList.remove('no-scroll');
+    const hadOverride = !!printOverride;
+    printOverride = null;
+    if (hadOverride) renderPrint();
     $('#btn-preview').focus();
   }
 
-  function printDoc() {
+  function printDoc(scope) {
     closeMenu();
+    const previewOpen = $('#preview').classList.contains('open');
+    /* プレビューから印刷する場合は、プレビュー中の範囲をそのまま使う */
+    if (typeof scope === 'string') printOverride = scope;
+    else if (!previewOpen) printOverride = null;
     renderPrint();
     const originalTitle = document.title;
     const base = (state.meta.title || '音響回線表').trim().replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60);
-    document.title = base || '音響回線表';
+    const suffix = currentScope() === 'pick' ? '_機材ピックリスト' : '';
+    document.title = (base || '音響回線表') + suffix;
+    let restored = false;
     const restore = () => {
+      if (restored) return;
+      restored = true;
       document.title = originalTitle;
       window.removeEventListener('afterprint', restore);
+      if (!$('#preview').classList.contains('open') && printOverride) {
+        printOverride = null;
+        renderPrint();
+      }
     };
     window.addEventListener('afterprint', restore);
     setTimeout(restore, 5000);
@@ -1289,6 +1646,8 @@
       else if (act === 'export-json') exportJSON();
       else if (act === 'import-json') $('#file-input').click();
       else if (act === 'export-csv') exportCSV();
+      else if (act === 'preview-pick') openPreview('pick');
+      else if (act === 'print-pick') printDoc('pick');
       else if (act === 'shortcuts') $('#shortcuts').showModal();
     });
   }
@@ -1355,7 +1714,7 @@
 
   function exportCSV() {
     const lines = [];
-    SECS.forEach((sec) => {
+    EDIT_SECS.forEach((sec) => {
       if (!state[sec].length) return;
       const cols = visibleCols(sec);
       if (lines.length) lines.push('');
@@ -1452,7 +1811,7 @@
       const col = COLS[sec].find((c) => c.key === input.dataset.k);
       if (col && col.dupe) refreshDupes(sec);
       if (input.dataset.k === 'no' || f.row.type === 'group') return;
-      $('[data-count="' + sec + '"]').textContent = dataCount(sec) + ' ' + SEC_INFO[sec].unit;
+      $('[data-count="' + sec + '"]').textContent = secCountText(sec);
     });
 
     table.addEventListener('focusin', (e) => {
@@ -1552,7 +1911,9 @@
         const btn = e.target.closest('button[data-val]');
         if (!btn) return;
         snapshot();
-        if (seg.dataset.setting === 'paper') state.paper = btn.dataset.val;
+        const key = seg.dataset.setting;
+        if (key === 'paper') state.paper = btn.dataset.val;
+        else if (key === 'scope') { state.printScope = btn.dataset.val; printOverride = null; }
         else state.density = btn.dataset.val;
         commit();
       });
@@ -1571,14 +1932,55 @@
         else if (act === 'add-group') addGroup(sec, null);
         else if (act === 'renumber') renumber(sec);
         else if (act === 'clear') clearSection(sec);
+        else if (act === 'from-lines') gearFromLines();
+        else if (act === 'print-pick') printDoc('pick');
+        else if (act === 'preview-pick') openPreview('pick');
       });
     });
   }
 
+  /* ピックリストのチェック欄・注意事項 */
+  function bindPickOptions() {
+    const ph = $('#pick-phases');
+    const pn = $('#pick-note');
+    [ph, pn].forEach((el) => {
+      el.addEventListener('focusin', () => { armPending(); focusValue = el.value; });
+    });
+    ph.addEventListener('input', () => {
+      consumePending();
+      state.pickPhases = parsePhases(ph.value);
+      save();
+      schedulePrint();
+    });
+    ph.addEventListener('change', () => {
+      ph.value = state.pickPhases.join(', ');
+      if (!state.pickPhases.length) toast('チェック欄が空です（例: 出庫, 搬入, バラシ, 帰庫）');
+    });
+    pn.addEventListener('input', () => {
+      consumePending();
+      state.pickNote = pn.value;
+      save();
+      schedulePrint();
+    });
+  }
+
+  function gearFromLines() {
+    const rows = aggregateGear(state);
+    if (!rows.length) {
+      toast('回線表にマイク・スタンド・ケーブルが入力されていません');
+      return;
+    }
+    if (dataCount('gear') && !window.confirm('回線表から集計した機材で、現在のピックリストを置き換えます。よろしいですか？')) return;
+    snapshot();
+    state.gear = rows;
+    commit();
+    toast(dataCount('gear') + ' 品目を回線表から作成しました（⌘Z で戻せます）');
+  }
+
   function bindGlobal() {
-    $('#btn-preview').addEventListener('click', openPreview);
-    $('#btn-pdf').addEventListener('click', printDoc);
-    $('#btn-print').addEventListener('click', printDoc);
+    $('#btn-preview').addEventListener('click', () => openPreview());
+    $('#btn-pdf').addEventListener('click', () => printDoc());
+    $('#btn-print').addEventListener('click', () => printDoc());
     $('#btn-close-preview').addEventListener('click', closePreview);
     $('#preview').addEventListener('click', (e) => { if (e.target === $('#preview')) closePreview(); });
     $('#btn-shortcuts').addEventListener('click', () => $('#shortcuts').showModal());
@@ -1640,6 +2042,7 @@
     bindSettings();
     $$('.edit-table').forEach(bindTable);
     bindSections();
+    bindPickOptions();
     bindRowMenu();
     bindMenu();
     bindGlobal();

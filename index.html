@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>音響回線表メーカー — A4 PDF</title>
+  <meta name="description" content="音響卓（ミキサー）用の回線表・入力表をブラウザで作成し、A4のPDFで保存できる無料ツール。登録不要・オフライン動作。">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232557d6'/%3E%3Cpath d='M10 8v16M16 8v16M22 8v16' stroke='%23fff' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M7 3v18M12 3v18M17 3v18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="7" cy="9" r="2" fill="currentColor"/><circle cx="12" cy="15" r="2" fill="currentColor"/><circle cx="17" cy="7" r="2" fill="currentColor"/></svg>
+        </span>
+        <div class="brand-text">
+          <div class="brand-name">音響回線表メーカー</div>
+          <div class="brand-sub">INPUT LIST / A4 PDF</div>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <span class="save-state" id="save-state" aria-live="polite">自動保存</span>
+        <button class="btn" id="btn-preview" type="button">プレビュー</button>
+        <button class="btn btn-primary" id="btn-pdf" type="button">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          PDFで保存
+        </button>
+        <div class="menu-wrap">
+          <button class="btn btn-icon" id="btn-menu" type="button" aria-haspopup="true" aria-expanded="false" aria-label="メニュー">⋯</button>
+          <div class="menu" id="menu" role="menu">
+            <button type="button" data-act="undo" role="menuitem">元に戻す <kbd>⌘Z</kbd></button>
+            <button type="button" data-act="redo" role="menuitem">やり直す <kbd>⇧⌘Z</kbd></button>
+            <div class="menu-sep"></div>
+            <button type="button" data-act="new" role="menuitem">新規作成</button>
+            <div class="menu-label">サンプルから作る</div>
+            <button type="button" data-act="sample-band" role="menuitem">バンド編成（22回線）</button>
+            <button type="button" data-act="sample-talk" role="menuitem">講演・セミナー（10回線）</button>
+            <div class="menu-sep"></div>
+            <button type="button" data-act="export-json" role="menuitem">JSONで書き出す</button>
+            <button type="button" data-act="import-json" role="menuitem">JSONを読み込む</button>
+            <button type="button" data-act="export-csv" role="menuitem">CSVで書き出す</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+
+    <section class="card">
+      <h2 class="card-title">公演情報</h2>
+      <div class="meta-grid">
+        <label class="field span2">
+          <span>タイトル / 公演名</span>
+          <input data-meta="title" type="text" placeholder="例: ○○ホール 定期公演 音響回線表" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>会場</span>
+          <input data-meta="venue" type="text" placeholder="例: ○○ホール 大ホール" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>日付</span>
+          <input data-meta="date" type="date">
+        </label>
+        <label class="field">
+          <span>作成者</span>
+          <input data-meta="author" type="text" placeholder="例: 山田" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Rev.</span>
+          <input data-meta="rev" type="text" placeholder="Rev.1" autocomplete="off">
+        </label>
+        <label class="field span2">
+          <span>備考 / メモ（表の下に印刷されます）</span>
+          <textarea data-meta="note" rows="2" placeholder="例: マイクは SM58 を 6 本用意。16:00 仕込み / 17:00 サウンドチェック。"></textarea>
+        </label>
+      </div>
+    </section>
+
+    <details class="card settings" id="settings">
+      <summary class="card-title">
+        <span>用紙・表示設定</span>
+        <span class="summary-note">A4 縦 / 文字 中</span>
+        <span class="summary-badge" id="summary-badge"></span>
+      </summary>
+      <div class="settings-body">
+        <div class="setting-row">
+          <span class="setting-label">用紙</span>
+          <div class="seg" data-setting="paper">
+            <button type="button" data-val="portrait">A4 縦</button>
+            <button type="button" data-val="landscape">A4 横</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">文字サイズ</span>
+          <div class="seg" data-setting="density">
+            <button type="button" data-val="compact">小</button>
+            <button type="button" data-val="normal">中</button>
+            <button type="button" data-val="large">大</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">印刷する列</span>
+          <div class="chips" id="column-chips"></div>
+        </div>
+      </div>
+    </details>
+
+    <section class="card">
+      <div class="table-bar">
+        <h2 class="card-title">回線表</h2>
+        <span class="row-count" id="row-count"></span>
+      </div>
+
+      <div class="empty-state" id="empty-state" hidden>
+        <p class="empty-title">まだ回線がありません</p>
+        <p class="empty-text">サンプルから始めるか、空の表に書き込んでください。<br>登録不要・オフラインで動きます。</p>
+        <div class="empty-actions">
+          <button class="btn" type="button" data-sample="band">バンド編成のサンプル</button>
+          <button class="btn" type="button" data-sample="talk">講演のサンプル</button>
+          <button class="btn btn-primary" type="button" data-sample="blank">空の表で始める</button>
+        </div>
+      </div>
+
+      <div class="table-scroll">
+        <table class="edit-table" id="edit-table"></table>
+      </div>
+
+      <div class="table-actions">
+        <button class="btn" id="btn-add-row" type="button">＋ 入力行</button>
+        <button class="btn" id="btn-add-group" type="button">＋ 入力見出し</button>
+        <button class="btn btn-out" id="btn-add-out-row" type="button">＋ 出力行</button>
+        <button class="btn btn-out" id="btn-add-out-group" type="button">＋ 出力見出し</button>
+        <button class="btn" id="btn-renumber" type="button">連番を振り直す</button>
+        <span class="hint">Enter で次の行へ / 行はドラッグで並べ替え</span>
+      </div>
+    </section>
+
+    <footer class="app-footer">
+      <p><strong>PDFの保存方法</strong>「PDFで保存」を押し、印刷ダイアログの保存先で「PDFに保存」を選んでください（用紙は A4 縦／横に自動設定されます）。</p>
+      <p>入力内容はこのブラウザに自動保存されます。サーバーへの送信はありません。</p>
+    </footer>
+
+  </main>
+
+  <div class="preview" id="preview" role="dialog" aria-modal="true" aria-label="A4プレビュー">
+    <div class="preview-bar">
+      <div class="preview-info">
+        <strong>A4 プレビュー</strong>
+        <span class="preview-tag" id="preview-tag">A4 縦 / 1ページ</span>
+        <span class="preview-hint">印刷ダイアログで「PDFに保存」を選んでください</span>
+      </div>
+      <div class="preview-actions">
+        <button class="btn" id="btn-close-preview" type="button">閉じる</button>
+        <button class="btn btn-primary" id="btn-print" type="button">印刷 / PDFに保存</button>
+      </div>
+    </div>
+    <div class="preview-scroll" id="preview-scroll">
+      <div class="sheet-stage" id="sheet-stage">
+        <div class="sheet-pages" id="sheet-pages"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="measure" id="measure" aria-hidden="true">
+    <div class="print-sheet" id="measure-sheet"></div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <datalist id="kind-list">
+    <option value="Mic"></option>
+    <option value="DI"></option>
+    <option value="Line"></option>
+    <option value="WL"></option>
+    <option value="PB"></option>
+    <option value="TB"></option>
+    <option value="Inst"></option>
+  </datalist>
+
+  <input type="file" id="file-input" accept="application/json,.json" hidden>
+
+  <noscript>
+    <p style="padding:24px;font-family:sans-serif">このページは JavaScript が必要です。</p>
+  </noscript>
+
+  <script src="app.js"></script>
+</body>
+</html>

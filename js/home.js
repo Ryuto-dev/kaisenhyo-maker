@@ -26,7 +26,9 @@
     if (tool === 'audio') {
       const c = KZ.store.countAudio(project);
       if (!c) return 'まだ作成していません';
-      return 'IN ' + c.input + ' / OUT ' + c.output;
+      const bits = ['IN ' + c.input, 'OUT ' + c.output];
+      if (c.gear) bits.push('PICK ' + c.gear);
+      return bits.join(' / ');
     }
     const c = KZ.store.countLighting(project);
     if (!c) return 'まだ作成していません';

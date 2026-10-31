@@ -227,6 +227,8 @@
       else if (sub === 'json') KZ.audio.exportJSON();
       else if (sub === 'import') $('#file-input').click();
       else if (sub === 'shortcuts') KZ.audio.openShortcuts();
+      else if (sub === 'preview-pick') KZ.audio.openPreview('pick');
+      else if (sub === 'print-pick') KZ.audio.printDoc('pick');
       return;
     }
 

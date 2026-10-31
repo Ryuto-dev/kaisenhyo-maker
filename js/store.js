@@ -278,7 +278,7 @@
     if (!project || !project.audio) return null;
     const a = project.audio;
     const rows = (list) => (Array.isArray(list) ? list.filter((r) => r && r.type !== 'group').length : 0);
-    return { input: rows(a.input), output: rows(a.output) };
+    return { input: rows(a.input), output: rows(a.output), gear: rows(a.gear) };
   }
 
   function countLighting(project) {

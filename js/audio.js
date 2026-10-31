@@ -1,18 +1,23 @@
 /* ============================================================
-   音響回線表メーカー — app
-   Vanilla JS / no build step / localStorage autosave
-   INPUT と OUTPUT を独立したセクションとして管理する
+   機材準備.com — 音響回線表エディタ
+   Vanilla JS / no build step
+   プロジェクトの audio データを編集する
    ============================================================ */
 
 (function () {
   'use strict';
 
+  const KZ = window.KZ = window.KZ || {};
+  const U = KZ.util;
+
   /* ---------------------------------------------------------
      constants
      --------------------------------------------------------- */
 
-  const STORAGE_KEY = 'kaisenhyo-maker/v1';
   const HISTORY_LIMIT = 100;
+  const ROOT_ID = 'view-audio';
+  let active = false;
+  let onChange = null;
   const SECS = ['input', 'output'];
 
   /*
@@ -59,43 +64,16 @@
      utilities
      --------------------------------------------------------- */
 
-  const $ = (sel, root) => (root || document).querySelector(sel);
-  const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
-
-  function uid() {
-    return Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-3);
-  }
-
-  function esc(value) {
-    return String(value == null ? '' : value).replace(/[&<>"']/g, (ch) => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-    }[ch]));
-  }
-
-  function pad2(n) { return String(n).padStart(2, '0'); }
-
-  function todayISO() {
-    const d = new Date();
-    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
-  }
-
-  function formatDate(value) {
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
-    if (!m) return value || '';
-    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-    if (isNaN(d.getTime())) return value;
-    return m[1] + '.' + m[2] + '.' + m[3] + ' (' + WEEKDAYS[d.getDay()] + ')';
-  }
-
-  function isTextField(el) {
-    if (!el) return false;
-    const tag = el.tagName;
-    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
-  }
-
-  function isBlankMark(v) {
-    return EMPTY_MARKS.indexOf(String(v == null ? '' : v).trim()) !== -1;
-  }
+  const $ = U.$;
+  const $$ = U.$$;
+  const uid = () => U.uid();
+  const esc = U.esc;
+  const pad2 = U.pad2;
+  const todayISO = U.todayISO;
+  const formatDate = U.formatDate;
+  const isTextField = U.isTextField;
+  const isBlankMark = U.isBlankMark;
+  const download = U.download;
 
   /* "SB1-8" → "SB1-9", "AUX1" → "AUX2", "09" → "10"。数字がなければ '' */
   function incr(value) {
@@ -213,7 +191,7 @@
     return s;
   }
 
-  let state = loadState();
+  let state = emptyState();
 
   function isHidden(sec, key) {
     return state.hidden.indexOf(sec + ':' + key) !== -1;
@@ -367,42 +345,27 @@
   }
 
   /* ---------------------------------------------------------
-     persistence
+     persistence — プロジェクトストアへ渡す
      --------------------------------------------------------- */
 
   let saveTimer = null;
-  let saveStateTimer = null;
 
-  function loadState() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return normalize(JSON.parse(raw));
-    } catch (err) { /* ignore broken storage */ }
-    return emptyState();
-  }
-
-  function setSaveState(text, revert) {
-    const el = $('#save-state');
-    if (!el) return;
-    el.textContent = text;
-    clearTimeout(saveStateTimer);
-    if (revert) saveStateTimer = setTimeout(() => { el.textContent = '自動保存'; }, 1400);
-  }
-
-  function flushSave() {
-    clearTimeout(saveTimer);
+  function emitChange() {
     saveTimer = null;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      setSaveState('保存済み ✓', true);
-    } catch (err) {
-      setSaveState('保存できません');
-    }
+    if (onChange) onChange(state);
   }
 
   function save() {
+    if (!active || !onChange) return;
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(flushSave, 250);
+    saveTimer = setTimeout(emitChange, 220);
+  }
+
+  function flushSave() {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      emitChange();
+    }
   }
 
   /* ---------------------------------------------------------
@@ -1218,7 +1181,7 @@
   }
 
   function openPreview() {
-    closeMenu();
+    if (!active) return;
     renderPrint();
     $('#preview').classList.add('open');
     document.body.classList.add('no-scroll');
@@ -1236,8 +1199,10 @@
   }
 
   function printDoc() {
-    closeMenu();
+    if (!active) return;
     renderPrint();
+    const trigger = document.getElementById('btn-pdf') || document.getElementById('btn-preview');
+    if (trigger) trigger.blur();
     const originalTitle = document.title;
     const base = (state.meta.title || '音響回線表').trim().replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60);
     document.title = base || '音響回線表';
@@ -1248,49 +1213,6 @@
     window.addEventListener('afterprint', restore);
     setTimeout(restore, 5000);
     window.print();
-  }
-
-  /* ---------------------------------------------------------
-     top menu
-     --------------------------------------------------------- */
-
-  function openMenu() {
-    $('#menu').classList.add('open');
-    $('#btn-menu').setAttribute('aria-expanded', 'true');
-  }
-
-  function closeMenu() {
-    $('#menu').classList.remove('open');
-    $('#btn-menu').setAttribute('aria-expanded', 'false');
-  }
-
-  function bindMenu() {
-    const btn = $('#btn-menu');
-    const menu = $('#menu');
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (menu.classList.contains('open')) closeMenu(); else openMenu();
-    });
-    document.addEventListener('click', (e) => {
-      if (!menu.classList.contains('open')) return;
-      if (e.target.closest('#menu') || e.target.closest('#btn-menu')) return;
-      closeMenu();
-    });
-    menu.addEventListener('click', (e) => {
-      const item = e.target.closest('button[data-act]');
-      if (!item) return;
-      const act = item.dataset.act;
-      closeMenu();
-      if (act === 'undo') undo();
-      else if (act === 'redo') redo();
-      else if (act === 'new') newDoc();
-      else if (act === 'sample-band') loadSample('band');
-      else if (act === 'sample-talk') loadSample('talk');
-      else if (act === 'export-json') exportJSON();
-      else if (act === 'import-json') $('#file-input').click();
-      else if (act === 'export-csv') exportCSV();
-      else if (act === 'shortcuts') $('#shortcuts').showModal();
-    });
   }
 
   /* ---------------------------------------------------------
@@ -1329,18 +1251,6 @@
     const title = (state.meta.title || '音響回線表').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40);
     const d = new Date();
     return title + '_' + d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate());
-  }
-
-  function download(filename, content, type) {
-    const blob = new Blob([content], { type: type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function exportJSON() {
@@ -1391,14 +1301,7 @@
      toast
      --------------------------------------------------------- */
 
-  let toastTimer = null;
-  function toast(message) {
-    const el = $('#toast');
-    el.textContent = message;
-    el.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
-  }
+  const toast = U.toast;
 
   /* ---------------------------------------------------------
      bindings
@@ -1597,6 +1500,7 @@
     });
 
     document.addEventListener('keydown', (e) => {
+      if (!active) return;
       const mod = e.metaKey || e.ctrlKey;
       const k = e.key.toLowerCase();
       if (mod && (k === 'z' || k === 'y')) {
@@ -1617,7 +1521,6 @@
       if (e.key === 'Escape') {
         if ($('#row-menu').classList.contains('open')) closeRowMenu();
         else if ($('#preview').classList.contains('open')) closePreview();
-        else closeMenu();
       }
     });
 
@@ -1625,35 +1528,87 @@
       if ($('#preview').classList.contains('open')) fitPreview();
     });
 
-    window.addEventListener('beforeprint', renderPrint);
-    window.addEventListener('beforeunload', () => { if (saveTimer) flushSave(); });
-    window.addEventListener('pagehide', () => { if (saveTimer) flushSave(); });
+    window.addEventListener('beforeprint', () => { if (active) renderPrint(); });
+    window.addEventListener('beforeunload', () => { if (active) flushSave(); });
+    window.addEventListener('pagehide', () => { if (active) flushSave(); });
   }
 
   /* ---------------------------------------------------------
      init
      --------------------------------------------------------- */
 
-  function init() {
+  function mount() {
+    if (mount.done) return;
+    mount.done = true;
     buildColumnChips();
     bindMeta();
     bindSettings();
-    $$('.edit-table').forEach(bindTable);
+    $$('#view-audio .edit-table').forEach(bindTable);
     bindSections();
     bindRowMenu();
-    bindMenu();
     bindGlobal();
+    renderPrint();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (active) renderPrint(); });
+  }
 
+  function createState(meta) {
+    const next = blankDoc();
+    if (meta) {
+      next.meta.title = meta.name || meta.title || '';
+      next.meta.venue = meta.venue || '';
+      next.meta.date = meta.date || todayISO();
+      next.meta.author = meta.author || '';
+      next.meta.rev = meta.rev || 'Rev.1';
+      next.meta.note = meta.note || '';
+    }
+    return next;
+  }
+
+  function open(project) {
+    mount();
+    active = true;
+    state = normalize(project && project.audio ? project.audio : createState(project));
+    if (project) {
+      /* プロジェクト情報を正として、空欄だけ補完する */
+      if (!state.meta.title) state.meta.title = project.name || '';
+      if (!state.meta.date) state.meta.date = project.date || todayISO();
+    }
     syncMeta();
     renderSettings();
     renderEditor();
     renderPrint();
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(renderPrint);
+    $('#view-audio').hidden = false;
+    requestAnimationFrame(() => { renderPrint(); if (document.fonts && document.fonts.ready) document.fonts.ready.then(renderPrint); });
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
+  function close() {
+    flushSave();
+    active = false;
+    if ($('#preview').classList.contains('open')) closePreview();
+    closeRowMenu();
   }
+
+  /* プロジェクト設定を変更したとき、回線表のメタ情報にも反映する */
+  function applyProjectMeta(project) {
+    if (!project) return;
+    state.meta.title = project.name || state.meta.title;
+    state.meta.venue = project.venue || '';
+    state.meta.date = project.date || state.meta.date;
+    state.meta.author = project.author || '';
+    state.meta.rev = project.rev || 'Rev.1';
+    state.meta.note = project.note || '';
+    syncMeta();
+    renderPrint();
+    save();
+  }
+
+  KZ.audio = {
+    mount, open, close, createState, applyProjectMeta,
+    getState: () => state,
+    onChange: (fn) => { onChange = fn; },
+    undo, redo,
+    openPreview, printDoc, newDoc, loadSample, exportJSON, exportCSV,
+    openShortcuts: () => $('#shortcuts').showModal(),
+    focusMeta: () => { const el = $('#view-audio [data-meta="title"]'); if (el) el.focus(); },
+  };
 })();

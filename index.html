@@ -3,301 +3,671 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>音響回線表メーカー — A4 PDF</title>
-  <meta name="description" content="音響卓（ミキサー）用の回線表・入力表をブラウザで作成し、A4のPDFで保存できる無料ツール。登録不要・オフライン動作。">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232557d6'/%3E%3Cpath d='M10 8v16M16 8v16M22 8v16' stroke='%23fff' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css">
+  <title>機材準備.com — 回線表と照明仕込み図をひとつのプロジェクトに</title>
+  <meta name="description" content="音響の回線表と照明の仕込み図を、ひとつのプロジェクトとしてまとめて作れる無料のWebツール。登録不要・自動保存・PDF出力。">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232557d6'/%3E%3Cpath d='M9 23V9l7 8 7-8v14' fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/app.css?v=5">
+  <link rel="stylesheet" href="css/lighting.css?v=5">
 </head>
 <body>
 
-  <header class="topbar">
+  <header class="topbar app-header" id="app-header">
     <div class="topbar-inner">
-      <div class="brand">
+      <a class="brand" href="#/" id="brand-link" aria-label="機材準備.com ホーム">
         <span class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M7 3v18M12 3v18M17 3v18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="7" cy="9" r="2" fill="currentColor"/><circle cx="12" cy="15" r="2" fill="currentColor"/><circle cx="17" cy="7" r="2" fill="currentColor"/></svg>
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M5 19V6l7 8 7-8v13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </span>
         <div class="brand-text">
-          <div class="brand-name">音響回線表メーカー</div>
-          <div class="brand-sub">INPUT / OUTPUT LIST · A4 PDF</div>
+          <div class="brand-name">機材準備<span class="brand-tld">.com</span></div>
+          <div class="brand-sub">PROJECT WORKSPACE FOR LIVE PRODUCTION</div>
         </div>
+      </a>
+
+      <div class="crumbs" id="crumbs" hidden>
+        <a class="crumb-home" href="#/" title="ホーム">プロジェクト</a>
+        <span class="crumb-sep">/</span>
+        <button class="crumb-project" id="crumb-project" type="button" title="プロジェクト設定"></button>
+        <span class="crumb-tool" id="crumb-tool"></span>
       </div>
+
+      <nav class="tool-tabs" id="tool-tabs" aria-label="制作物" hidden>
+        <a href="#/audio" data-tool="audio" id="tab-audio">回線表</a>
+        <a href="#/lighting" data-tool="lighting" id="tab-lighting">照明仕込み図</a>
+      </nav>
 
       <div class="topbar-actions">
         <span class="page-count" id="page-count"></span>
         <span class="save-state" id="save-state" aria-live="polite">自動保存</span>
-        <button class="btn" id="btn-preview" type="button">プレビュー</button>
-        <button class="btn btn-primary" id="btn-pdf" type="button">
-          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          PDFで保存
-        </button>
+
+        <div class="header-actions" id="audio-actions" hidden>
+          <button class="btn" id="btn-preview" type="button">プレビュー</button>
+          <button class="btn btn-primary" id="btn-pdf" type="button">
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            PDFで保存
+          </button>
+        </div>
+
+        <div class="header-actions" id="lighting-actions" hidden>
+          <button class="btn" id="lt-btn-preview" type="button">プレビュー</button>
+          <button class="btn btn-primary" id="lt-btn-pdf" type="button">
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            PDFで保存
+          </button>
+        </div>
+
         <div class="menu-wrap">
           <button class="btn btn-icon" id="btn-menu" type="button" aria-haspopup="true" aria-expanded="false" aria-label="メニュー">⋯</button>
           <div class="menu" id="menu" role="menu">
-            <button type="button" data-act="undo" role="menuitem">元に戻す <kbd>⌘Z</kbd></button>
-            <button type="button" data-act="redo" role="menuitem">やり直す <kbd>⇧⌘Z</kbd></button>
+            <button type="button" data-act="undo" data-scope="audio lighting" role="menuitem">元に戻す <kbd>⌘Z</kbd></button>
+            <button type="button" data-act="redo" data-scope="audio lighting" role="menuitem">やり直す <kbd>⇧⌘Z</kbd></button>
+
+            <div class="menu-sep" data-scope="audio lighting"></div>
+            <div class="menu-label" data-scope="audio">回線表</div>
+            <button type="button" data-act="audio-sample-band" data-scope="audio" role="menuitem">バンド編成のサンプル</button>
+            <button type="button" data-act="audio-sample-talk" data-scope="audio" role="menuitem">講演・セミナーのサンプル</button>
+            <button type="button" data-act="audio-csv" data-scope="audio" role="menuitem">CSVで書き出す</button>
+            <button type="button" data-act="audio-json" data-scope="audio" role="menuitem">回線表JSONを書き出す</button>
+            <button type="button" data-act="audio-import" data-scope="audio" role="menuitem">回線表JSONを読み込む</button>
+            <button type="button" data-act="audio-shortcuts" data-scope="audio" role="menuitem">キーボードショートカット</button>
+
+            <div class="menu-sep" data-scope="lighting"></div>
+            <div class="menu-label" data-scope="lighting">照明仕込み図</div>
+            <button type="button" data-act="lighting-sample" data-scope="lighting" role="menuitem">サンプル配置をつくる</button>
+            <button type="button" data-act="lighting-csv" data-scope="lighting" role="menuitem">灯体リストをCSVで書き出す</button>
+            <button type="button" data-act="lighting-svg" data-scope="lighting" role="menuitem">SVGで書き出す</button>
+            <button type="button" data-act="lighting-png" data-scope="lighting" role="menuitem">PNGで書き出す</button>
+            <button type="button" data-act="lighting-shortcuts" data-scope="lighting" role="menuitem">キーボードショートカット</button>
+
             <div class="menu-sep"></div>
-            <button type="button" data-act="new" role="menuitem">新規作成</button>
-            <div class="menu-label">サンプルから作る</div>
-            <button type="button" data-act="sample-band" role="menuitem">バンド編成（IN 22 / OUT 10）</button>
-            <button type="button" data-act="sample-talk" role="menuitem">講演・セミナー（IN 10 / OUT 4）</button>
+            <button type="button" data-act="project-settings" role="menuitem">プロジェクト設定</button>
+            <button type="button" data-act="project-export" role="menuitem">プロジェクトを書き出す</button>
+            <button type="button" data-act="project-import" role="menuitem">プロジェクトを読み込む</button>
             <div class="menu-sep"></div>
-            <button type="button" data-act="export-json" role="menuitem">JSONで書き出す</button>
-            <button type="button" data-act="import-json" role="menuitem">JSONを読み込む</button>
-            <button type="button" data-act="export-csv" role="menuitem">CSVで書き出す</button>
-            <div class="menu-sep"></div>
-            <button type="button" data-act="shortcuts" role="menuitem">キーボードショートカット</button>
+            <button type="button" data-act="home" role="menuitem">ホームへ</button>
           </div>
         </div>
       </div>
     </div>
   </header>
 
-  <main class="page">
+  <main id="app-main">
 
-    <section class="card">
-      <h2 class="card-title">公演情報</h2>
-      <div class="meta-grid">
-        <label class="field span2">
-          <span>タイトル / 公演名</span>
-          <input data-meta="title" type="text" placeholder="例: ○○ホール 定期公演 音響回線表" autocomplete="off">
-        </label>
-        <label class="field">
-          <span>会場</span>
-          <input data-meta="venue" type="text" placeholder="例: ○○ホール 大ホール" autocomplete="off">
-        </label>
-        <label class="field">
-          <span>日付</span>
-          <input data-meta="date" type="date">
-        </label>
-        <label class="field">
-          <span>作成者</span>
-          <input data-meta="author" type="text" placeholder="例: 山田" autocomplete="off">
-        </label>
-        <label class="field">
-          <span>Rev.</span>
-          <input data-meta="rev" type="text" placeholder="Rev.1" autocomplete="off">
-        </label>
-        <label class="field span2">
-          <span>備考 / メモ（表の下に印刷されます）</span>
-          <textarea data-meta="note" rows="2" placeholder="例: マイクは SM58 を 6 本用意。16:00 仕込み / 17:00 サウンドチェック。"></textarea>
-        </label>
+    <!-- ============================================================
+         HOME — 何を作るかを選ぶ
+         ============================================================ -->
+    <section class="view home-view" id="view-home">
+      <div class="page home-page">
+
+        <section class="hero">
+          <div class="hero-copy">
+            <p class="hero-kicker">LIVE PRODUCTION WORKSPACE</p>
+            <h1>現場の準備を、<br class="hero-br">ひとつのプロジェクトに。</h1>
+            <p class="hero-lead">回線表も、照明仕込み図も。公演・現場ごとのプロジェクトにまとめて、この端末に自動保存。PDFで印刷して、そのまま現場へ。</p>
+          </div>
+          <div class="hero-mark" aria-hidden="true">
+            <div class="hero-mark-row"><span class="hm-dot audio"></span><b>音響</b><span>回線表 / INPUT・OUTPUT</span></div>
+            <div class="hero-mark-row"><span class="hm-dot lighting"></span><b>照明</b><span>仕込み図 / 灯体・吊り物</span></div>
+            <div class="hero-mark-row"><span class="hm-dot project"></span><b>管理</b><span>プロジェクトファイル</span></div>
+          </div>
+        </section>
+
+        <section class="project-bar card">
+          <div class="project-bar-main">
+            <label class="project-select-field">
+              <span>操作するプロジェクト</span>
+              <select id="home-project-select"></select>
+            </label>
+            <button class="btn btn-primary" id="btn-new-project" type="button">＋ 新しいプロジェクト</button>
+          </div>
+          <div class="project-bar-sub">
+            <button class="link-btn" id="btn-project-settings-home" type="button">プロジェクト設定</button>
+            <button class="link-btn" id="btn-import-project-home" type="button">プロジェクトファイルを読み込む</button>
+            <span class="project-count" id="project-count"></span>
+          </div>
+        </section>
+
+        <section class="tool-section">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">STEP 1</p>
+              <h2>何を作りますか？</h2>
+            </div>
+            <p class="section-note">選んだプロジェクトに保存されます。後からもう一方を追加できます。</p>
+          </div>
+
+          <div class="tool-grid">
+            <button class="tool-card audio" type="button" data-tool="audio" id="tool-audio">
+              <span class="tool-icon" aria-hidden="true">
+                <svg viewBox="0 0 48 48"><rect x="7" y="9" width="34" height="30" rx="4" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M14 18h20M14 25h20M14 32h12" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="35" cy="32" r="4" fill="currentColor"/></svg>
+              </span>
+              <span class="tool-body">
+                <span class="tool-kicker">AUDIO</span>
+                <span class="tool-title">回線表</span>
+                <span class="tool-desc">INPUT / OUTPUT の入力表・出力表。現場の回線を抜けなく整理してA4 PDFに。</span>
+                <span class="tool-stats" id="tool-audio-stats">まだ作成していません</span>
+              </span>
+              <span class="tool-go" aria-hidden="true">開く <span>→</span></span>
+            </button>
+
+            <button class="tool-card lighting" type="button" data-tool="lighting" id="tool-lighting">
+              <span class="tool-icon" aria-hidden="true">
+                <svg viewBox="0 0 48 48"><circle cx="24" cy="19" r="8" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M24 27v6M18 39h12M15 33l-4 6M33 33l4 6M11 19H6M37 19h5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="24" cy="19" r="2.5" fill="currentColor"/></svg>
+              </span>
+              <span class="tool-body">
+                <span class="tool-kicker">LIGHTING</span>
+                <span class="tool-title">照明仕込み図</span>
+                <span class="tool-desc">灯体・バトン・トラスを配置して、灯体リストと仕込み図をA3/A4 PDFに。</span>
+                <span class="tool-stats" id="tool-lighting-stats">まだ作成していません</span>
+              </span>
+              <span class="tool-go" aria-hidden="true">開く <span>→</span></span>
+            </button>
+
+            <div class="tool-card soon" aria-disabled="true">
+              <span class="tool-icon" aria-hidden="true">
+                <svg viewBox="0 0 48 48"><path d="M10 34V22M18 34V14M26 34V18M34 34V10M38 34V6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+              </span>
+              <span class="tool-body">
+                <span class="tool-kicker">COMING SOON</span>
+                <span class="tool-title">ステージ図・キュー表</span>
+                <span class="tool-desc">現場で使う制作物を、同じプロジェクトに追加していく予定です。</span>
+                <span class="tool-stats">今後追加</span>
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <section class="projects-section">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">PROJECTS</p>
+              <h2>プロジェクト</h2>
+            </div>
+            <p class="section-note">音響と照明をまとめて、1つのJSONファイルで持ち運べます。</p>
+          </div>
+          <div class="project-list" id="project-list"></div>
+        </section>
+
+        <footer class="app-footer home-footer">
+          <p><strong>保存について</strong>入力内容はこのブラウザ内に自動保存されます。サーバーへの送信はありません。別の端末へ移すときは「プロジェクトを書き出す」を使ってください。</p>
+        </footer>
       </div>
     </section>
 
-    <details class="card settings" id="settings">
-      <summary class="card-title">
-        <span>用紙・表示設定</span>
-        <span class="summary-note">A4 縦 / 文字 中</span>
-      </summary>
-      <div class="settings-body">
-        <div class="setting-row">
-          <span class="setting-label">用紙</span>
-          <div class="seg" data-setting="paper">
-            <button type="button" data-val="portrait">A4 縦</button>
-            <button type="button" data-val="landscape">A4 横</button>
+    <!-- ============================================================
+         AUDIO — 回線表
+         ============================================================ -->
+    <section class="view" id="view-audio" hidden>
+      <div class="page">
+        <div class="view-lead">
+          <div>
+            <p class="view-kicker">AUDIO / INPUT &amp; OUTPUT</p>
+            <h1>音響回線表</h1>
+            <p class="view-lead-text">回線を入力して、A4のPDFに。行の追加・貼り付け・重複チェックまでキーボードで完結します。</p>
           </div>
-          <span class="setting-label setting-label-inline">文字サイズ</span>
-          <div class="seg" data-setting="density">
-            <button type="button" data-val="compact">小</button>
-            <button type="button" data-val="normal">中</button>
-            <button type="button" data-val="large">大</button>
+          <div class="view-lead-badges">
+            <span class="lead-badge">A4 PDF</span>
+            <span class="lead-badge">Excel貼り付け</span>
+            <span class="lead-badge muted">プロジェクトに自動保存</span>
           </div>
-          <label class="check">
-            <input type="checkbox" id="opt-output-break">
-            <span>OUTPUT は新しいページから</span>
+        </div>
+
+        <section class="card">
+          <h2 class="card-title">公演情報</h2>
+          <div class="meta-grid">
+            <label class="field span2">
+              <span>タイトル / 公演名</span>
+              <input data-meta="title" type="text" placeholder="例: ○○ホール 定期公演 音響回線表" autocomplete="off">
+            </label>
+            <label class="field">
+              <span>会場</span>
+              <input data-meta="venue" type="text" placeholder="例: ○○ホール 大ホール" autocomplete="off">
+            </label>
+            <label class="field">
+              <span>日付</span>
+              <input data-meta="date" type="date">
+            </label>
+            <label class="field">
+              <span>作成者</span>
+              <input data-meta="author" type="text" placeholder="例: 山田" autocomplete="off">
+            </label>
+            <label class="field">
+              <span>Rev.</span>
+              <input data-meta="rev" type="text" placeholder="Rev.1" autocomplete="off">
+            </label>
+            <label class="field span2">
+              <span>備考 / メモ（表の下に印刷されます）</span>
+              <textarea data-meta="note" rows="2" placeholder="例: マイクは SM58 を 6 本用意。16:00 仕込み / 17:00 サウンドチェック。"></textarea>
+            </label>
+          </div>
+        </section>
+
+        <details class="card settings" id="settings">
+          <summary class="card-title">
+            <span>用紙・表示設定</span>
+            <span class="summary-note">A4 縦 / 文字 中</span>
+          </summary>
+          <div class="settings-body">
+            <div class="setting-row">
+              <span class="setting-label">用紙</span>
+              <div class="seg" data-setting="paper">
+                <button type="button" data-val="portrait">A4 縦</button>
+                <button type="button" data-val="landscape">A4 横</button>
+              </div>
+              <span class="setting-label setting-label-inline">文字サイズ</span>
+              <div class="seg" data-setting="density">
+                <button type="button" data-val="compact">小</button>
+                <button type="button" data-val="normal">中</button>
+                <button type="button" data-val="large">大</button>
+              </div>
+              <label class="check">
+                <input type="checkbox" id="opt-output-break">
+                <span>OUTPUT は新しいページから</span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <span class="setting-label"><i class="sec-dot in"></i>INPUT の列</span>
+              <div class="chips" id="column-chips-input"></div>
+            </div>
+            <div class="setting-row">
+              <span class="setting-label"><i class="sec-dot out"></i>OUTPUT の列</span>
+              <div class="chips" id="column-chips-output"></div>
+            </div>
+          </div>
+        </details>
+
+        <div class="empty-state card" id="empty-state" hidden>
+          <p class="empty-title">まだ回線がありません</p>
+          <p class="empty-text">サンプルから始めるか、空の表に書き込んでください。<br>Excel やスプレッドシートからの貼り付けにも対応しています。</p>
+          <div class="empty-actions">
+            <button class="btn" type="button" data-sample="band">バンド編成のサンプル</button>
+            <button class="btn" type="button" data-sample="talk">講演のサンプル</button>
+            <button class="btn btn-primary" type="button" data-sample="blank">空の表で始める</button>
+          </div>
+        </div>
+
+        <section class="card sec-card" data-sec="input" aria-labelledby="sec-title-input">
+          <header class="sec-head">
+            <div class="sec-title-wrap">
+              <span class="sec-tag in">IN</span>
+              <h2 class="sec-title" id="sec-title-input">INPUT<span class="sec-ja">入力</span></h2>
+              <span class="sec-count" data-count="input"></span>
+              <span class="sec-warn" data-warn="input" hidden></span>
+            </div>
+            <div class="sec-tools">
+              <button class="btn btn-sm btn-ghost" type="button" data-sact="renumber" title="No. を 1 から振り直す">No. 振り直し</button>
+              <button class="btn btn-sm btn-ghost btn-danger-text" type="button" data-sact="clear" title="INPUT を空にする">空にする</button>
+            </div>
+          </header>
+          <div class="table-scroll">
+            <table class="edit-table" data-sec="input"></table>
+          </div>
+          <div class="sec-empty">INPUT はまだありません。下のボタンで行を追加してください。</div>
+          <footer class="sec-foot">
+            <button class="btn btn-sm" type="button" data-sact="add-row">＋ 行</button>
+            <button class="btn btn-sm" type="button" data-sact="add-rows">＋ 8 行</button>
+            <button class="btn btn-sm" type="button" data-sact="add-group">＋ 見出し</button>
+          </footer>
+        </section>
+
+        <section class="card sec-card" data-sec="output" aria-labelledby="sec-title-output">
+          <header class="sec-head">
+            <div class="sec-title-wrap">
+              <span class="sec-tag out">OUT</span>
+              <h2 class="sec-title" id="sec-title-output">OUTPUT<span class="sec-ja">出力</span></h2>
+              <span class="sec-count" data-count="output"></span>
+              <span class="sec-warn" data-warn="output" hidden></span>
+            </div>
+            <div class="sec-tools">
+              <button class="btn btn-sm btn-ghost" type="button" data-sact="renumber" title="No. を 1 から振り直す">No. 振り直し</button>
+              <button class="btn btn-sm btn-ghost btn-danger-text" type="button" data-sact="clear" title="OUTPUT を空にする">空にする</button>
+            </div>
+          </header>
+          <div class="table-scroll">
+            <table class="edit-table" data-sec="output"></table>
+          </div>
+          <div class="sec-empty">OUTPUT はまだありません。メイン・モニター・収録送りなどを追加できます。</div>
+          <footer class="sec-foot">
+            <button class="btn btn-sm" type="button" data-sact="add-row">＋ 行</button>
+            <button class="btn btn-sm" type="button" data-sact="add-rows">＋ 8 行</button>
+            <button class="btn btn-sm" type="button" data-sact="add-group">＋ 見出し</button>
+          </footer>
+        </section>
+
+        <div class="kbd-hints">
+          <span><kbd>Enter</kbd> 下へ</span>
+          <span><kbd>⌘</kbd><kbd>Enter</kbd> 行を挿入</span>
+          <span><kbd>⌘</kbd><kbd>D</kbd> 複製</span>
+          <span><kbd>Alt</kbd><kbd>↑↓</kbd> 行を移動</span>
+          <span>Excel から複数セルを貼り付け可</span>
+          <button class="link-btn" type="button" id="btn-shortcuts">ショートカット一覧</button>
+        </div>
+
+        <footer class="app-footer">
+          <p><strong>PDFの保存方法</strong>「PDFで保存」を押し、印刷ダイアログの保存先で「PDFに保存」を選んでください（用紙は A4 縦／横に自動設定されます）。</p>
+          <p>この回線表はプロジェクトの一部として、このブラウザに自動保存されます。</p>
+        </footer>
+      </div>
+
+      <div class="preview" id="preview" role="dialog" aria-modal="true" aria-label="A4プレビュー">
+        <div class="preview-bar">
+          <div class="preview-info">
+            <strong>A4 プレビュー</strong>
+            <span class="preview-tag" id="preview-tag">A4 縦 / 1ページ</span>
+            <span class="preview-hint">印刷ダイアログで「PDFに保存」を選んでください</span>
+          </div>
+          <div class="preview-actions">
+            <button class="btn" id="btn-close-preview" type="button">閉じる</button>
+            <button class="btn btn-primary" id="btn-print" type="button">印刷 / PDFに保存</button>
+          </div>
+        </div>
+        <div class="preview-scroll" id="preview-scroll">
+          <div class="sheet-stage" id="sheet-stage">
+            <div class="sheet-pages" id="sheet-pages"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="measure" id="measure" aria-hidden="true">
+        <div class="print-sheet" id="measure-sheet"></div>
+      </div>
+
+      <div class="row-menu" id="row-menu" role="menu">
+        <button type="button" data-ract="above" role="menuitem">上に行を挿入</button>
+        <button type="button" data-ract="below" role="menuitem">下に行を挿入 <kbd>⌘↵</kbd></button>
+        <button type="button" data-ract="to-group" role="menuitem">上に見出しを挿入</button>
+        <button type="button" data-ract="group-below" role="menuitem">下に見出しを挿入</button>
+        <button type="button" data-ract="duplicate" role="menuitem">複製 <kbd>⌘D</kbd></button>
+        <div class="menu-sep"></div>
+        <button type="button" data-ract="up" role="menuitem">上へ移動 <kbd>Alt↑</kbd></button>
+        <button type="button" data-ract="down" role="menuitem">下へ移動 <kbd>Alt↓</kbd></button>
+        <div class="menu-sep"></div>
+        <button type="button" data-ract="delete" class="danger" role="menuitem">行を削除 <kbd>⌘⇧⌫</kbd></button>
+      </div>
+
+      <dialog class="dialog" id="shortcuts" aria-labelledby="shortcuts-title">
+        <div class="dialog-head">
+          <h2 id="shortcuts-title">回線表のキーボードショートカット</h2>
+          <button class="btn btn-icon btn-ghost" type="button" data-close aria-label="閉じる">✕</button>
+        </div>
+        <table class="kbd-table">
+          <tbody>
+            <tr><th><kbd>Enter</kbd></th><td>下のセルへ（最終行では行を追加）</td></tr>
+            <tr><th><kbd>Shift</kbd> + <kbd>Enter</kbd></th><td>上のセルへ</td></tr>
+            <tr><th><kbd>↑</kbd> <kbd>↓</kbd></th><td>上下のセルへ移動</td></tr>
+            <tr><th><kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd></th><td>右 / 左のセルへ</td></tr>
+            <tr><th><kbd>⌘</kbd> + <kbd>Enter</kbd></th><td>下に行を挿入（卓CH・BOX は自動で +1）</td></tr>
+            <tr><th><kbd>⌘</kbd> + <kbd>D</kbd></th><td>行を複製</td></tr>
+            <tr><th><kbd>⌘</kbd> + <kbd>Shift</kbd> + <kbd>⌫</kbd></th><td>行を削除</td></tr>
+            <tr><th><kbd>Alt</kbd> + <kbd>↑</kbd> <kbd>↓</kbd></th><td>行を上下に移動</td></tr>
+            <tr><th><kbd>⌘</kbd> + <kbd>Z</kbd> / <kbd>⇧⌘Z</kbd></th><td>元に戻す / やり直す</td></tr>
+            <tr><th><kbd>⌘</kbd> + <kbd>P</kbd></th><td>PDF で保存</td></tr>
+            <tr><th>貼り付け</th><td>Excel・Googleスプレッドシートの範囲をそのまま貼り付け（選択セルから右・下へ展開）</td></tr>
+          </tbody>
+        </table>
+        <p class="dialog-note">Windows では <kbd>⌘</kbd> の代わりに <kbd>Ctrl</kbd> を使います。</p>
+      </dialog>
+
+      <datalist id="kind-list">
+        <option value="Mic"></option>
+        <option value="DI"></option>
+        <option value="Line"></option>
+        <option value="WL"></option>
+        <option value="PB"></option>
+        <option value="TB"></option>
+        <option value="Inst"></option>
+      </datalist>
+      <datalist id="stand-list">
+        <option value="トール"></option>
+        <option value="ショート"></option>
+        <option value="ストレート"></option>
+        <option value="卓上"></option>
+        <option value="クリップ"></option>
+        <option value="なし"></option>
+      </datalist>
+      <datalist id="cable-list">
+        <option value="XLR"></option>
+        <option value="TRS"></option>
+        <option value="TS"></option>
+        <option value="RCA"></option>
+        <option value="SPK"></option>
+        <option value="Multi"></option>
+        <option value="—"></option>
+      </datalist>
+      <datalist id="out-list">
+        <option value="MAIN L"></option>
+        <option value="MAIN R"></option>
+        <option value="MONO"></option>
+        <option value="AUX1"></option>
+        <option value="MIX1"></option>
+        <option value="MTX1"></option>
+        <option value="GRP1"></option>
+        <option value="DCA1"></option>
+      </datalist>
+
+      <input type="file" id="file-input" accept="application/json,.json" hidden>
+    </section>
+
+    <!-- ============================================================
+         LIGHTING — 照明仕込み図
+         ============================================================ -->
+    <section class="view lt-view" id="view-lighting" hidden>
+      <div class="lt-app">
+        <div class="lt-toolbar">
+          <div class="lt-toolgroup" role="group" aria-label="基本ツール">
+            <button class="lt-tool on" type="button" data-lt-tool="select" title="選択 (V)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l14 8-6 1.6L10 19z" fill="currentColor"/></svg>
+              <span>選択</span>
+            </button>
+            <button class="lt-tool" type="button" data-lt-tool="pan" title="画面移動 (H / Space)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V10m0-1.5a1.5 1.5 0 0 1 3 0V11m0-1a1.5 1.5 0 0 1 3 0v5.5c0 3-2.2 5-5.5 5S9 18 7.5 15.5L5 11.8a1.6 1.6 0 0 1 2.7-1.7L9 12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span>移動</span>
+            </button>
+          </div>
+
+          <div class="lt-toolgroup" role="group" aria-label="吊り物">
+            <span class="lt-group-label">吊り物</span>
+            <button class="lt-tool" type="button" data-lt-tool="batten" title="バトンを描く (B)">バトン</button>
+            <button class="lt-tool" type="button" data-lt-tool="truss" title="トラスを描く (R)">トラス</button>
+            <button class="lt-tool" type="button" data-lt-tool="stand" title="スタンドを描く (S)">スタンド</button>
+          </div>
+
+          <div class="lt-toolgroup" role="group" aria-label="図形・テキスト">
+            <span class="lt-group-label">作図</span>
+            <button class="lt-tool" type="button" data-lt-tool="text" title="テキスト (T)">テキスト</button>
+            <button class="lt-tool" type="button" data-lt-tool="rect" title="矩形 (M)">矩形</button>
+            <button class="lt-tool" type="button" data-lt-tool="image" title="下敷き画像">下敷き</button>
+            <input type="file" id="lt-image-input" accept="image/*" hidden>
+          </div>
+
+          <div class="lt-toolgroup lt-toolgroup-zoom" role="group" aria-label="ズーム">
+            <button class="lt-icon-btn" type="button" id="lt-zoom-out" title="縮小">−</button>
+            <span class="lt-zoom-label" id="lt-zoom-label">100%</span>
+            <button class="lt-icon-btn" type="button" id="lt-zoom-in" title="拡大">＋</button>
+            <button class="lt-tool" type="button" id="lt-fit" title="全体表示 (0)">全体</button>
+          </div>
+
+          <div class="lt-toolgroup lt-toolgroup-toggles" role="group" aria-label="表示">
+            <label class="lt-toggle"><input type="checkbox" id="lt-grid"><span>グリッド</span></label>
+            <label class="lt-toggle"><input type="checkbox" id="lt-snap"><span>スナップ</span></label>
+            <label class="lt-toggle"><input type="checkbox" id="lt-labels"><span>ラベル</span></label>
+            <label class="lt-toggle"><input type="checkbox" id="lt-beams"><span>ビーム</span></label>
+          </div>
+
+          <div class="lt-toolgroup lt-toolgroup-end">
+            <button class="lt-tool" type="button" id="lt-undo" title="元に戻す (⌘Z)">↶</button>
+            <button class="lt-tool" type="button" id="lt-redo" title="やり直す (⇧⌘Z)">↷</button>
+            <button class="lt-tool lt-tool-accent" type="button" id="lt-autonumber" title="灯体番号を左から順に振り直す">No. 振り直し</button>
+            <span class="lt-warn" id="lt-warn" hidden></span>
+          </div>
+        </div>
+
+        <div class="lt-body">
+          <aside class="lt-library" aria-label="灯体ライブラリ">
+            <div class="lt-lib-head">
+              <h2>灯体ライブラリ</h2>
+              <input type="search" id="lt-search" placeholder="検索（PAR / LED ...）" autocomplete="off">
+            </div>
+            <div class="lt-lib-list" id="lt-library"></div>
+            <p class="lt-lib-hint">選んでキャンバスをクリック、またはドラッグ＆ドロップで配置。</p>
+          </aside>
+
+          <div class="lt-canvas-wrap" id="lt-canvas-wrap">
+            <svg id="lt-canvas" xmlns="http://www.w3.org/2000/svg" role="application" aria-label="照明仕込み図キャンバス"></svg>
+            <div class="lt-canvas-hint" id="lt-canvas-hint" hidden></div>
+            <div class="lt-placement-badge" id="lt-placement-badge" hidden></div>
+          </div>
+
+          <aside class="lt-props" id="lt-props" aria-label="プロパティ"></aside>
+        </div>
+
+        <div class="lt-foot">
+          <button class="lt-table-toggle" id="lt-table-toggle" type="button">
+            <span class="lt-table-caret">▾</span> 灯体表 <span class="lt-count" id="lt-table-count">0</span>
+          </button>
+          <span class="lt-summary" id="lt-summary"></span>
+          <span class="lt-foot-spacer"></span>
+          <span class="lt-selection" id="lt-selection-info"></span>
+          <span class="lt-sheet-info" id="lt-sheet-info">A3 横 / 1:50</span>
+        </div>
+
+        <div class="lt-table-wrap" id="lt-table-wrap">
+          <table class="lt-table">
+            <thead>
+              <tr>
+                <th class="c">No.</th>
+                <th>種別</th>
+                <th class="c">ユニット</th>
+                <th class="c">回路</th>
+                <th class="c">DMX</th>
+                <th class="c">色</th>
+                <th>用途</th>
+                <th class="c">W</th>
+                <th>メモ</th>
+              </tr>
+            </thead>
+            <tbody id="lt-table-body"></tbody>
+          </table>
+          <div class="lt-table-empty" id="lt-table-empty">灯体がまだありません。左のライブラリから配置してください。</div>
+        </div>
+      </div>
+
+      <div class="lt-preview" id="lt-preview" role="dialog" aria-modal="true" aria-label="仕込み図プレビュー">
+        <div class="preview-bar">
+          <div class="preview-info">
+            <strong>仕込み図プレビュー</strong>
+            <span class="preview-tag" id="lt-preview-tag">A3 横 / 1:50</span>
+            <span class="preview-hint">印刷ダイアログで「PDFに保存」を選んでください</span>
+          </div>
+          <div class="preview-actions">
+            <button class="btn" id="lt-btn-close-preview" type="button">閉じる</button>
+            <button class="btn btn-primary" id="lt-btn-print" type="button">印刷 / PDFに保存</button>
+          </div>
+        </div>
+        <div class="lt-preview-scroll" id="lt-preview-scroll">
+          <div class="lt-preview-stage" id="lt-preview-stage">
+            <div class="lt-preview-sheet" id="lt-preview-sheet"></div>
+          </div>
+        </div>
+      </div>
+
+      <dialog class="dialog" id="lt-shortcuts" aria-labelledby="lt-shortcuts-title">
+        <div class="dialog-head">
+          <h2 id="lt-shortcuts-title">照明仕込み図のキーボードショートカット</h2>
+          <button class="btn btn-icon btn-ghost" type="button" data-close aria-label="閉じる">✕</button>
+        </div>
+        <table class="kbd-table">
+          <tbody>
+            <tr><th><kbd>V</kbd> / <kbd>H</kbd></th><td>選択 / 画面移動</td></tr>
+            <tr><th><kbd>B</kbd> / <kbd>R</kbd> / <kbd>S</kbd></th><td>バトン / トラス / スタンド</td></tr>
+            <tr><th><kbd>T</kbd> / <kbd>M</kbd></th><td>テキスト / 矩形</td></tr>
+            <tr><th><kbd>Space</kbd> + ドラッグ</th><td>画面を移動</td></tr>
+            <tr><th>ホイール</th><td>カーソル位置を中心にズーム</td></tr>
+            <tr><th><kbd>0</kbd></th><td>全体表示</td></tr>
+            <tr><th><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd></th><td>選択物を移動（10mm / Shift で 100mm）</td></tr>
+            <tr><th><kbd>⌘</kbd> + <kbd>D</kbd></th><td>選択物を複製</td></tr>
+            <tr><th><kbd>⌫</kbd> / <kbd>Delete</kbd></th><td>選択物を削除</td></tr>
+            <tr><th><kbd>⌘</kbd> + <kbd>Z</kbd> / <kbd>⇧⌘Z</kbd></th><td>元に戻す / やり直す</td></tr>
+            <tr><th><kbd>⌘</kbd> + <kbd>P</kbd></th><td>PDF で保存</td></tr>
+          </tbody>
+        </table>
+        <p class="dialog-note">Esc でツールを解除します。Windows では ⌘ の代わりに Ctrl を使います。</p>
+      </dialog>
+
+      <dialog class="dialog lt-text-dialog" id="lt-text-dialog" aria-labelledby="lt-text-dialog-title">
+        <form id="lt-text-form" autocomplete="off">
+          <div class="dialog-head">
+            <h2 id="lt-text-dialog-title">テキストを追加</h2>
+            <button class="btn btn-icon btn-ghost" type="button" data-close aria-label="閉じる">✕</button>
+          </div>
+          <label class="field">
+            <span>テキスト</span>
+            <input class="input" type="text" id="lt-text-value" maxlength="120" placeholder="例: 舞台下手 / 上手寄り" autocomplete="off">
           </label>
-        </div>
-        <div class="setting-row">
-          <span class="setting-label"><i class="sec-dot in"></i>INPUT の列</span>
-          <div class="chips" id="column-chips-input"></div>
-        </div>
-        <div class="setting-row">
-          <span class="setting-label"><i class="sec-dot out"></i>OUTPUT の列</span>
-          <div class="chips" id="column-chips-output"></div>
-        </div>
-      </div>
-    </details>
-
-    <div class="empty-state card" id="empty-state" hidden>
-      <p class="empty-title">まだ回線がありません</p>
-      <p class="empty-text">サンプルから始めるか、空の表に書き込んでください。<br>Excel やスプレッドシートからの貼り付けにも対応しています。</p>
-      <div class="empty-actions">
-        <button class="btn" type="button" data-sample="band">バンド編成のサンプル</button>
-        <button class="btn" type="button" data-sample="talk">講演のサンプル</button>
-        <button class="btn btn-primary" type="button" data-sample="blank">空の表で始める</button>
-      </div>
-    </div>
-
-    <!-- ===== INPUT ===== -->
-    <section class="card sec-card" data-sec="input" aria-labelledby="sec-title-input">
-      <header class="sec-head">
-        <div class="sec-title-wrap">
-          <span class="sec-tag in">IN</span>
-          <h2 class="sec-title" id="sec-title-input">INPUT<span class="sec-ja">入力</span></h2>
-          <span class="sec-count" data-count="input"></span>
-          <span class="sec-warn" data-warn="input" hidden></span>
-        </div>
-        <div class="sec-tools">
-          <button class="btn btn-sm btn-ghost" type="button" data-sact="renumber" title="No. を 1 から振り直す">No. 振り直し</button>
-          <button class="btn btn-sm btn-ghost btn-danger-text" type="button" data-sact="clear" title="INPUT を空にする">空にする</button>
-        </div>
-      </header>
-      <div class="table-scroll">
-        <table class="edit-table" data-sec="input"></table>
-      </div>
-      <div class="sec-empty">INPUT はまだありません。下のボタンで行を追加してください。</div>
-      <footer class="sec-foot">
-        <button class="btn btn-sm" type="button" data-sact="add-row">＋ 行</button>
-        <button class="btn btn-sm" type="button" data-sact="add-rows">＋ 8 行</button>
-        <button class="btn btn-sm" type="button" data-sact="add-group">＋ 見出し</button>
-      </footer>
+          <div class="dialog-actions">
+            <button class="btn" type="button" data-close>キャンセル</button>
+            <button class="btn btn-primary" type="submit">追加</button>
+          </div>
+        </form>
+      </dialog>
     </section>
-
-    <!-- ===== OUTPUT ===== -->
-    <section class="card sec-card" data-sec="output" aria-labelledby="sec-title-output">
-      <header class="sec-head">
-        <div class="sec-title-wrap">
-          <span class="sec-tag out">OUT</span>
-          <h2 class="sec-title" id="sec-title-output">OUTPUT<span class="sec-ja">出力</span></h2>
-          <span class="sec-count" data-count="output"></span>
-          <span class="sec-warn" data-warn="output" hidden></span>
-        </div>
-        <div class="sec-tools">
-          <button class="btn btn-sm btn-ghost" type="button" data-sact="renumber" title="No. を 1 から振り直す">No. 振り直し</button>
-          <button class="btn btn-sm btn-ghost btn-danger-text" type="button" data-sact="clear" title="OUTPUT を空にする">空にする</button>
-        </div>
-      </header>
-      <div class="table-scroll">
-        <table class="edit-table" data-sec="output"></table>
-      </div>
-      <div class="sec-empty">OUTPUT はまだありません。メイン・モニター・収録送りなどを追加できます。</div>
-      <footer class="sec-foot">
-        <button class="btn btn-sm" type="button" data-sact="add-row">＋ 行</button>
-        <button class="btn btn-sm" type="button" data-sact="add-rows">＋ 8 行</button>
-        <button class="btn btn-sm" type="button" data-sact="add-group">＋ 見出し</button>
-      </footer>
-    </section>
-
-    <div class="kbd-hints">
-      <span><kbd>Enter</kbd> 下へ</span>
-      <span><kbd>⌘</kbd><kbd>Enter</kbd> 行を挿入</span>
-      <span><kbd>⌘</kbd><kbd>D</kbd> 複製</span>
-      <span><kbd>Alt</kbd><kbd>↑↓</kbd> 行を移動</span>
-      <span>Excel から複数セルを貼り付け可</span>
-      <button class="link-btn" type="button" id="btn-shortcuts">ショートカット一覧</button>
-    </div>
-
-    <footer class="app-footer">
-      <p><strong>PDFの保存方法</strong>「PDFで保存」を押し、印刷ダイアログの保存先で「PDFに保存」を選んでください（用紙は A4 縦／横に自動設定されます）。</p>
-      <p>入力内容はこのブラウザに自動保存されます。サーバーへの送信はありません。</p>
-    </footer>
 
   </main>
 
-  <div class="preview" id="preview" role="dialog" aria-modal="true" aria-label="A4プレビュー">
-    <div class="preview-bar">
-      <div class="preview-info">
-        <strong>A4 プレビュー</strong>
-        <span class="preview-tag" id="preview-tag">A4 縦 / 1ページ</span>
-        <span class="preview-hint">印刷ダイアログで「PDFに保存」を選んでください</span>
+  <!-- ============================================================
+       PROJECT DIALOG
+       ============================================================ -->
+  <dialog class="dialog project-dialog" id="project-dialog" aria-labelledby="project-dialog-title">
+    <form id="project-form" autocomplete="off">
+      <div class="dialog-head">
+        <h2 id="project-dialog-title">新しいプロジェクト</h2>
+        <button class="btn btn-icon btn-ghost" type="button" data-close aria-label="閉じる">✕</button>
       </div>
-      <div class="preview-actions">
-        <button class="btn" id="btn-close-preview" type="button">閉じる</button>
-        <button class="btn btn-primary" id="btn-print" type="button">印刷 / PDFに保存</button>
+      <p class="project-dialog-lead" id="project-dialog-lead">公演・現場の情報を入れます。あとから変更できます。</p>
+      <div class="project-form-grid">
+        <label class="field span2">
+          <span>プロジェクト名 <b class="req">必須</b></span>
+          <input type="text" name="name" id="project-name" required placeholder="例: ○○ホール 9月公演" maxlength="80">
+        </label>
+        <label class="field">
+          <span>会場</span>
+          <input type="text" name="venue" id="project-venue" placeholder="例: ○○ホール 大ホール" maxlength="80">
+        </label>
+        <label class="field">
+          <span>日付</span>
+          <input type="date" name="date" id="project-date">
+        </label>
+        <label class="field">
+          <span>作成者</span>
+          <input type="text" name="author" id="project-author" placeholder="例: 山田" maxlength="40">
+        </label>
+        <label class="field">
+          <span>Rev.</span>
+          <input type="text" name="rev" id="project-rev" placeholder="Rev.1" maxlength="20">
+        </label>
+        <label class="field span2">
+          <span>メモ</span>
+          <textarea name="note" id="project-note" rows="2" placeholder="仕込み時間、連絡事項など"></textarea>
+        </label>
       </div>
-    </div>
-    <div class="preview-scroll" id="preview-scroll">
-      <div class="sheet-stage" id="sheet-stage">
-        <div class="sheet-pages" id="sheet-pages"></div>
+      <div class="dialog-actions">
+        <button class="btn" type="button" data-close>キャンセル</button>
+        <button class="btn btn-primary" type="submit" id="project-submit">作成して開く</button>
       </div>
-    </div>
-  </div>
-
-  <div class="measure" id="measure" aria-hidden="true">
-    <div class="print-sheet" id="measure-sheet"></div>
-  </div>
-
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
-
-  <div class="row-menu" id="row-menu" role="menu">
-    <button type="button" data-ract="above" role="menuitem">上に行を挿入</button>
-    <button type="button" data-ract="below" role="menuitem">下に行を挿入 <kbd>⌘↵</kbd></button>
-    <button type="button" data-ract="to-group" role="menuitem">上に見出しを挿入</button>
-    <button type="button" data-ract="group-below" role="menuitem">下に見出しを挿入</button>
-    <button type="button" data-ract="duplicate" role="menuitem">複製 <kbd>⌘D</kbd></button>
-    <div class="menu-sep"></div>
-    <button type="button" data-ract="up" role="menuitem">上へ移動 <kbd>Alt↑</kbd></button>
-    <button type="button" data-ract="down" role="menuitem">下へ移動 <kbd>Alt↓</kbd></button>
-    <div class="menu-sep"></div>
-    <button type="button" data-ract="delete" class="danger" role="menuitem">行を削除 <kbd>⌘⇧⌫</kbd></button>
-  </div>
-
-  <dialog class="dialog" id="shortcuts" aria-labelledby="shortcuts-title">
-    <div class="dialog-head">
-      <h2 id="shortcuts-title">キーボードショートカット</h2>
-      <button class="btn btn-icon btn-ghost" type="button" data-close aria-label="閉じる">✕</button>
-    </div>
-    <table class="kbd-table">
-      <tbody>
-        <tr><th><kbd>Enter</kbd></th><td>下のセルへ（最終行では行を追加）</td></tr>
-        <tr><th><kbd>Shift</kbd> + <kbd>Enter</kbd></th><td>上のセルへ</td></tr>
-        <tr><th><kbd>↑</kbd> <kbd>↓</kbd></th><td>上下のセルへ移動</td></tr>
-        <tr><th><kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd></th><td>右 / 左のセルへ</td></tr>
-        <tr><th><kbd>⌘</kbd> + <kbd>Enter</kbd></th><td>下に行を挿入（卓CH・BOX は自動で +1）</td></tr>
-        <tr><th><kbd>⌘</kbd> + <kbd>D</kbd></th><td>行を複製</td></tr>
-        <tr><th><kbd>⌘</kbd> + <kbd>Shift</kbd> + <kbd>⌫</kbd></th><td>行を削除</td></tr>
-        <tr><th><kbd>Alt</kbd> + <kbd>↑</kbd> <kbd>↓</kbd></th><td>行を上下に移動</td></tr>
-        <tr><th><kbd>⌘</kbd> + <kbd>Z</kbd> / <kbd>⇧⌘Z</kbd></th><td>元に戻す / やり直す</td></tr>
-        <tr><th><kbd>⌘</kbd> + <kbd>P</kbd></th><td>PDF で保存</td></tr>
-        <tr><th>貼り付け</th><td>Excel・Googleスプレッドシートの範囲をそのまま貼り付け（選択セルから右・下へ展開）</td></tr>
-      </tbody>
-    </table>
-    <p class="dialog-note">Windows では <kbd>⌘</kbd> の代わりに <kbd>Ctrl</kbd> を使います。</p>
+    </form>
   </dialog>
 
-  <datalist id="kind-list">
-    <option value="Mic"></option>
-    <option value="DI"></option>
-    <option value="Line"></option>
-    <option value="WL"></option>
-    <option value="PB"></option>
-    <option value="TB"></option>
-    <option value="Inst"></option>
-  </datalist>
-  <datalist id="stand-list">
-    <option value="トール"></option>
-    <option value="ショート"></option>
-    <option value="ストレート"></option>
-    <option value="卓上"></option>
-    <option value="クリップ"></option>
-    <option value="なし"></option>
-  </datalist>
-  <datalist id="cable-list">
-    <option value="XLR"></option>
-    <option value="TRS"></option>
-    <option value="TS"></option>
-    <option value="RCA"></option>
-    <option value="SPK"></option>
-    <option value="Multi"></option>
-    <option value="—"></option>
-  </datalist>
-  <datalist id="out-list">
-    <option value="MAIN L"></option>
-    <option value="MAIN R"></option>
-    <option value="MONO"></option>
-    <option value="AUX1"></option>
-    <option value="MIX1"></option>
-    <option value="MTX1"></option>
-    <option value="GRP1"></option>
-    <option value="DCA1"></option>
-  </datalist>
-
-  <input type="file" id="file-input" accept="application/json,.json" hidden>
+  <input type="file" id="project-file-input" accept="application/json,.json" hidden>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <noscript>
     <p style="padding:24px;font-family:sans-serif">このページは JavaScript が必要です。</p>
   </noscript>
 
-  <script src="app.js"></script>
+  <script src="js/util.js?v=5"></script>
+  <script src="js/store.js?v=5"></script>
+  <script src="js/audio.js?v=5"></script>
+  <script src="js/lighting.js?v=5"></script>
+  <script src="js/home.js?v=5"></script>
+  <script src="js/app.js?v=5"></script>
 </body>
 </html>
